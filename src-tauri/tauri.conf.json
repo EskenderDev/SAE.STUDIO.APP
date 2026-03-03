@@ -16,7 +16,8 @@
         "title": "SAELABEL",
         "width": 1200,
         "height": 860,
-        "resizable": true
+        "resizable": true,
+        "dragDropEnabled": false
       }
     ]
   },

@@ -42,3 +42,6 @@ Detalles:
 - Variables opcionales:
   - `SAELABEL_OPENAPI_URL` para cambiar la URL del spec.
   - `SAELABEL_OPENAPI_TIMEOUT_MS` para timeout de descarga.
+
+## Documentacion Del Editor Visual
+- Comandos y atajos del canvas: [docs/EDITOR_COMMANDS.md](docs/EDITOR_COMMANDS.md)

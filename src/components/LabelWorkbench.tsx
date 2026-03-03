@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { createLabelsApi, DEFAULT_API_BASE_URL } from "@/lib/api/client";
+import { createLabelsApi, DEFAULT_API_BASE_URL, createEditorApi } from "@/lib/api/client";
+import type { EditorDocumentSummary, UpsertEditorDocumentPayload } from "@/lib/api/client";
 import VisualCanvasEditor from "@/components/VisualCanvasEditor";
 
 type Action = "parse" | "convert-to-glabels" | "convert-from-glabels";
-type ViewMode = "api" | "visual";
+type DocKind = "sae" | "glabels";
+type Unit = "mm" | "cm" | "in" | "pt";
 
 const sampleSaeXml =
   `<saelabels version="1.0"><template brand="SAE" description="Demo" part="P-1" size="custom"><label_rectangle width_pt="144" height_pt="72" round_pt="0" x_waste_pt="0" y_waste_pt="0" /><layout dx_pt="0" dy_pt="0" nx="1" ny="1" x0_pt="0" y0_pt="0" /></template><objects /><variables /></saelabels>`;
@@ -37,6 +39,65 @@ type SessionItem = {
   xml: string;
   timeoutMs: number;
 };
+
+type NewDocumentDraft = {
+  kind: DocKind;
+  name: string;
+  width: number;
+  height: number;
+  unit: Unit;
+  brand: string;
+  description: string;
+  part: string;
+  size: string;
+};
+
+type LabelPreset = {
+  id: string;
+  name: string;
+  width: number;
+  height: number;
+  unit: Unit;
+  brand: string;
+  part: string;
+  size: string;
+  description: string;
+};
+
+const PT_PER_IN = 72;
+const MM_PER_IN = 25.4;
+const toPt = (value: number, unit: Unit): number => {
+  if (unit === "pt") return value;
+  if (unit === "in") return value * PT_PER_IN;
+  if (unit === "mm") return (value / MM_PER_IN) * PT_PER_IN;
+  return (value / 2.54) * PT_PER_IN;
+};
+const fmt = (n: number) => n.toFixed(4).replace(/\.?0+$/, "");
+const xesc = (v: string) =>
+  v.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+const LABEL_PRESETS: LabelPreset[] = [
+  { id: "custom", name: "Custom", width: 50, height: 25, unit: "mm", brand: "Custom", part: "P-1", size: "custom", description: "Tamano personalizado" },
+  { id: "avery-5160", name: "Avery 5160 (Address)", width: 66.675, height: 25.4, unit: "mm", brand: "Avery", part: "5160", size: "US Letter", description: "30 etiquetas por hoja" },
+  { id: "avery-5163", name: "Avery 5163 (Shipping)", width: 101.6, height: 50.8, unit: "mm", brand: "Avery", part: "5163", size: "US Letter", description: "10 etiquetas por hoja" },
+  { id: "avery-5164", name: "Avery 5164 (Shipping)", width: 101.6, height: 84.667, unit: "mm", brand: "Avery", part: "5164", size: "US Letter", description: "6 etiquetas por hoja" },
+  { id: "dymo-30252", name: "DYMO 30252 (Address)", width: 54, height: 25, unit: "mm", brand: "DYMO", part: "30252", size: "Roll", description: "Address label" },
+  { id: "brother-dk-11201", name: "Brother DK-11201", width: 29, height: 90, unit: "mm", brand: "Brother", part: "DK-11201", size: "Roll", description: "Address label" },
+  { id: "zebra-4x6", name: "Zebra 4x6 Shipping", width: 4, height: 6, unit: "in", brand: "Zebra", part: "4x6", size: "Roll", description: "Envio estandar" },
+];
+
+function buildNewDocumentXml(draft: NewDocumentDraft): string {
+  const widthPt = Math.max(1, toPt(draft.width, draft.unit));
+  const heightPt = Math.max(1, toPt(draft.height, draft.unit));
+  const brand = xesc(draft.brand.trim() || "Custom");
+  const description = xesc((draft.description.trim() || draft.name.trim() || "Nuevo documento"));
+  const part = xesc(draft.part.trim() || "P-1");
+  const size = xesc(draft.size.trim() || "custom");
+  if (draft.kind === "sae") {
+    return `<saelabels version="1.0"><template brand="${brand}" description="${description}" part="${part}" size="${size}"><label_rectangle width_pt="${fmt(widthPt)}" height_pt="${fmt(heightPt)}" round_pt="0" x_waste_pt="0" y_waste_pt="0" /><layout dx_pt="0" dy_pt="0" nx="1" ny="1" x0_pt="0" y0_pt="0" /></template><objects /><variables /></saelabels>`;
+  }
+  return `<Glabels-document version="4.0"><Template brand="${brand}" description="${description}" part="${part}" size="${size}"><Label-rectangle width="${fmt(widthPt)}pt" height="${fmt(heightPt)}pt"><Layout dx="${fmt(widthPt)}pt" dy="${fmt(heightPt)}pt" nx="1" ny="1" x0="0pt" y0="0pt"/></Label-rectangle></Template><Objects/><Variables/><Data/></Glabels-document>`;
+}
 
 function sanitizeXmlInput(value: string): string {
   return value
@@ -79,7 +140,6 @@ function validateXmlInput(action: Action, rawXml: string): { ok: true; normalize
 }
 
 export default function LabelWorkbench() {
-  const [viewMode, setViewMode] = useState<ViewMode>("api");
   const [apiBaseUrl, setApiBaseUrl] = useState(DEFAULT_API_BASE_URL);
   const [timeoutMs, setTimeoutMs] = useState(30000);
   const [xml, setXml] = useState(sampleSaeXml);
@@ -91,6 +151,36 @@ export default function LabelWorkbench() {
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [sessions, setSessions] = useState<SessionItem[]>([]);
   const [selectedSessionId, setSelectedSessionId] = useState("");
+  const [showApiConfigModal, setShowApiConfigModal] = useState(false);
+  const [apiBaseUrlDraft, setApiBaseUrlDraft] = useState("");
+  const [showResultModal, setShowResultModal] = useState(false);
+  const [showNewTypeModal, setShowNewTypeModal] = useState(false);
+  const [showNewConfigModal, setShowNewConfigModal] = useState(false);
+  const [selectedPresetId, setSelectedPresetId] = useState("custom");
+  const [newDocumentDraft, setNewDocumentDraft] = useState<NewDocumentDraft>({
+    kind: "sae",
+    name: "Nueva etiqueta",
+    width: 50,
+    height: 25,
+    unit: "mm",
+    brand: "Custom",
+    description: "Etiqueta personalizada",
+    part: "P-1",
+    size: "custom",
+  });
+  const [docId, setDocId] = useState("");
+  const [docName, setDocName] = useState("Sin titulo");
+  const [documents, setDocuments] = useState<EditorDocumentSummary[]>([]);
+  const [metaVersion, setMetaVersion] = useState("1.0");
+  const [metaBrand, setMetaBrand] = useState("SAE");
+  const [metaDescription, setMetaDescription] = useState("Etiqueta");
+  const [metaPart, setMetaPart] = useState("P-1");
+  const [metaSize, setMetaSize] = useState("custom");
+
+  const [propertiesModalOpen, setPropertiesModalOpen] = useState(false);
+  const [saveAsModalOpen, setSaveAsModalOpen] = useState(false);
+  const [saveAsName, setSaveAsName] = useState("");
+
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
@@ -157,9 +247,84 @@ export default function LabelWorkbench() {
     if (action === "convert-to-glabels") return "Convertir a glabels";
     return "Convertir desde glabels";
   }, [action]);
-
   const resultExtension = action === "parse" ? "json" : "xml";
   const labelsApi = useMemo(() => createLabelsApi(apiBaseUrl, { timeoutMs }), [apiBaseUrl, timeoutMs]);
+  const editorApi = useMemo(() => createEditorApi(apiBaseUrl, { timeoutMs }), [apiBaseUrl, timeoutMs]);
+
+  const refreshDocuments = async () => {
+    try {
+      const docs = await editorApi.listDocuments();
+      setDocuments(docs);
+    } catch (e) {
+      console.error("Failed to refresh documents:", e);
+    }
+  };
+
+  useEffect(() => {
+    void refreshDocuments();
+  }, [editorApi]);
+
+  const saveDoc = async () => {
+    if (!docName.trim()) {
+      setError("Nombre del documento es requerido.");
+      return;
+    }
+    try {
+      const payload: UpsertEditorDocumentPayload = {
+        id: docId || undefined,
+        name: docName.trim(),
+        kind: newDocumentDraft.kind,
+        xml,
+      };
+      const res = await editorApi.saveDocument(payload);
+      setDocId(res.id);
+      setDocName(res.name);
+      setError("");
+      void refreshDocuments();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "No se pudo guardar.");
+    }
+  };
+
+  const saveAsDoc = async () => {
+    if (!saveAsName.trim()) {
+      setError("El nombre es obligatorio para 'Guardar como'.");
+      return;
+    }
+    try {
+      const payload: UpsertEditorDocumentPayload = {
+        name: saveAsName.trim(),
+        kind: newDocumentDraft.kind,
+        xml,
+      };
+      const res = await editorApi.saveDocument(payload);
+      setDocId(res.id);
+      setDocName(res.name);
+      setSaveAsModalOpen(false);
+      setSaveAsName("");
+      setError("");
+      void refreshDocuments();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "No se pudo guardar como.");
+    }
+  };
+
+  const loadDocument = async (id: string) => {
+    try {
+      const full = await editorApi.getDocument(id);
+      setDocId(full.id);
+      setDocName(full.name);
+      setXml(full.xml);
+      setNewDocumentDraft(p => ({ ...p, kind: full.kind as DocKind }));
+      setError("");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "No se pudo cargar.");
+    }
+  };
+
+  const exportDoc = () => {
+    alert("Funcion 'Exportar' estara disponible pronto.");
+  };
 
   const applyExample = () => {
     setXml(action === "convert-from-glabels" ? sampleGlabelsXml : sampleSaeXml);
@@ -174,6 +339,52 @@ export default function LabelWorkbench() {
     setError("");
     setResult("");
     setPingStatus("");
+  };
+
+  const openNewDocumentTypeModal = () => {
+    setShowNewTypeModal(true);
+  };
+
+  const selectNewDocumentType = (kind: DocKind) => {
+    setNewDocumentDraft((prev) => ({ ...prev, kind }));
+    setSelectedPresetId("custom");
+    setShowNewTypeModal(false);
+    setShowNewConfigModal(true);
+  };
+
+  const applyPreset = (presetId: string) => {
+    setSelectedPresetId(presetId);
+    const preset = LABEL_PRESETS.find((p) => p.id === presetId);
+    if (!preset) return;
+    if (preset.id === "custom") return;
+    setNewDocumentDraft((prev) => ({
+      ...prev,
+      width: preset.width,
+      height: preset.height,
+      unit: preset.unit,
+      brand: preset.brand,
+      part: preset.part,
+      size: preset.size,
+      description: preset.description,
+    }));
+  };
+
+  const createConfiguredDocument = () => {
+    if (!newDocumentDraft.name.trim()) {
+      setError("Nombre requerido para el documento.");
+      return;
+    }
+    if (newDocumentDraft.width <= 0 || newDocumentDraft.height <= 0) {
+      setError("Ancho y alto deben ser mayores a cero.");
+      return;
+    }
+    const xmlDraft = buildNewDocumentXml(newDocumentDraft);
+    setXml(xmlDraft);
+    setAction(newDocumentDraft.kind === "sae" ? "parse" : "convert-from-glabels");
+    setError("");
+    setResult("");
+    setPingStatus("");
+    setShowNewConfigModal(false);
   };
 
   const addHistoryItem = (item: HistoryItem) => {
@@ -237,10 +448,10 @@ export default function LabelWorkbench() {
         setResult(JSON.stringify(parsed, null, 2));
       } else if (action === "convert-to-glabels") {
         const converted = await labelsApi.convertToGlabels({ xml: normalizedXml });
-        setResult(converted);
+        setResult(converted.data);
       } else {
         const converted = await labelsApi.convertFromGlabels({ xml: normalizedXml });
-        setResult(converted);
+        setResult(converted.data);
       }
       addHistoryItem({
         id: crypto.randomUUID(),
@@ -318,10 +529,11 @@ export default function LabelWorkbench() {
     }
   };
 
-  const pingBackend = async () => {
+  const pingBackend = async (targetBaseUrl?: string) => {
+    const base = (targetBaseUrl ?? apiBaseUrl).replace(/\/+$/, "");
     setPingStatus("Probando conexion...");
     try {
-      const response = await fetch(`${apiBaseUrl.replace(/\/+$/, "")}/openapi/v1.json`, {
+      const response = await fetch(`${base}/openapi/v1.json`, {
         method: "GET",
       });
       if (response.ok) {
@@ -334,815 +546,1612 @@ export default function LabelWorkbench() {
     }
   };
 
+  const openApiConfigModal = () => {
+    setApiBaseUrlDraft(apiBaseUrl);
+    setShowApiConfigModal(true);
+  };
+
+  const saveApiConfig = () => {
+    const next = apiBaseUrlDraft.trim();
+    if (!next) {
+      setError("API Base URL no puede estar vacio.");
+      return;
+    }
+    setApiBaseUrl(next);
+    setShowApiConfigModal(false);
+  };
+
+  const restorePanels = () => {
+    if (typeof window === "undefined") return;
+    window.dispatchEvent(new Event("saelabel:restore-panels"));
+    closeAllMenus();
+  };
+
+  useEffect(() => {
+    const handleOutsideClick = (e: MouseEvent) => {
+      if (!(e.target as HTMLElement).closest(".appMenu")) {
+        closeAllMenus();
+      }
+    };
+    window.addEventListener("click", handleOutsideClick);
+    return () => window.removeEventListener("click", handleOutsideClick);
+  }, []);
+
+  const closeAllMenus = () => {
+    if (typeof document === "undefined") return;
+    document.querySelectorAll(".appMenu details[open]").forEach((el) => {
+      (el as HTMLDetailsElement).open = false;
+    });
+  };
+
   return (
-    <section className={`panel ${viewMode === "visual" ? "visualMode" : ""}`}>
-      <h1>SAELABEL App Studio</h1>
-      <p>Modo API para conversiones y modo visual para editar objetos en canvas.</p>
+    <section className="panel visualMode">
+      <nav className="appMenu">
+        <details className="menuDropdown">
+          <summary className="menuItem active">Archivo</summary>
+          <div className="menuDropdownList">
+            <button type="button" className="menuDropdownItem" onClick={() => { openNewDocumentTypeModal(); closeAllMenus(); }}>
+              Nuevo...
+            </button>
+            <button type="button" className="menuDropdownItem" onClick={() => { setPropertiesModalOpen(true); closeAllMenus(); }}>
+              Propiedades
+            </button>
+            <div className="menuDivider" />
+            <button type="button" className="menuDropdownItem" onClick={() => { saveDoc(); closeAllMenus(); }}>
+              Guardar
+            </button>
+            <button type="button" className="menuDropdownItem" onClick={() => { setSaveAsName(docName + " (Copia)"); setSaveAsModalOpen(true); closeAllMenus(); }}>
+              Guardar como...
+            </button>
+            <button type="button" className="menuDropdownItem" onClick={() => { exportDoc(); closeAllMenus(); }}>
+              Exportar
+            </button>
+            <div className="menuDivider" />
+            <details className="menuSubDropdown">
+              <summary className="menuDropdownItem">Etiquetas recientes</summary>
+              <div className="menuSubDropdownList">
+                {documents.length > 0 ? documents.slice(0, 10).map(d => (
+                  <button key={d.id} type="button" className="menuDropdownItem" onClick={() => { loadDocument(d.id); closeAllMenus(); }}>
+                    {d.name}
+                  </button>
+                )) : <div className="menuDropdownItem disabled">No hay etiquetas</div>}
+              </div>
+            </details>
+            <div className="menuDivider" />
+            <button type="button" className="menuDropdownItem" onClick={() => { openApiConfigModal(); closeAllMenus(); }}>
+              Config API
+            </button>
+          </div>
+        </details>
+        <details className="menuDropdown">
+          <summary className="menuItem">Editar</summary>
+          <div className="menuDropdownList">
+            <details className="menuSubDropdown">
+              <summary className="menuDropdownItem">Procesar</summary>
+              <div className="menuSubDropdownList">
+                <button type="button" className={`menuDropdownItem ${action === "parse" ? "active" : ""}`} onClick={() => { setAction("parse"); closeAllMenus(); }}>
+                  parse
+                </button>
+                <button type="button" className={`menuDropdownItem ${action === "convert-to-glabels" ? "active" : ""}`} onClick={() => { setAction("convert-to-glabels"); closeAllMenus(); }}>
+                  convert-to-glabels
+                </button>
+                <button type="button" className={`menuDropdownItem ${action === "convert-from-glabels" ? "active" : ""}`} onClick={() => { setAction("convert-from-glabels"); closeAllMenus(); }}>
+                  convert-from-glabels
+                </button>
+              </div>
+            </details>
+            <button type="button" className="menuDropdownItem" onClick={() => { setShowResultModal(true); closeAllMenus(); }}>
+              Ver resultado
+            </button>
+          </div>
+        </details>
+        <details className="menuDropdown">
+          <summary className="menuItem">Vista</summary>
+          <div className="menuDropdownList">
+            <button type="button" className="menuDropdownItem" onClick={restorePanels}>
+              Restaurar paneles
+            </button>
+          </div>
+        </details>
+        <div className="menuItem" onClick={() => window.open("https://github.com/EskenderDev/SAELABEL", "_blank")}>GitHub</div>
+        <div className="menuItem" onClick={() => alert("SAELABEL App Studio v1.0.0")}>Acerca de</div>
+      </nav>
+      <VisualCanvasEditor
+        xml={xml}
+        apiBaseUrl={apiBaseUrl}
+        timeoutMs={timeoutMs}
+        docId={docId}
+        docName={docName}
+        metadata={{
+          version: metaVersion,
+          brand: metaBrand,
+          description: metaDescription,
+          part: metaPart,
+          size: metaSize,
+        }}
+        onXmlChange={(nextXml) => {
+          setXml(nextXml);
+          setError("");
+        }}
+        onDocNameChange={setDocName}
+        onMetadataChange={(m: any) => {
+          if (m.version !== undefined) setMetaVersion(m.version);
+          if (m.brand !== undefined) setMetaBrand(m.brand);
+          if (m.description !== undefined) setMetaDescription(m.description);
+          if (m.part !== undefined) setMetaPart(m.part);
+          if (m.size !== undefined) setMetaSize(m.size);
+        }}
+      />
 
-      <div className="viewToggle">
-        <button
-          type="button"
-          className={viewMode === "api" ? "active" : "secondary"}
-          onClick={() => setViewMode("api")}
-        >
-          API Workbench
-        </button>
-        <button
-          type="button"
-          className={viewMode === "visual" ? "active" : "secondary"}
-          onClick={() => setViewMode("visual")}
-        >
-          Editor visual
-        </button>
-      </div>
-
-      <div className="row">
-        <button type="button" className="secondary" onClick={() => createNewDocument("sae")}>
-          Nuevo SAELABEL
-        </button>
-        <button type="button" className="secondary" onClick={() => createNewDocument("glabels")}>
-          Nuevo glabels
-        </button>
-      </div>
-
-      {viewMode === "visual" ? (
-        <>
-          <div className="row">
-            <label className="grow">
+      {showNewTypeModal && (
+        <div className="modalBackdrop">
+          <div className="modalCard" onClick={(e) => e.stopPropagation()}>
+            <h3>Nuevo documento</h3>
+            <p style={{ marginBottom: "0.8rem" }}>Selecciona el tipo de documento.</p>
+            <div className="typeChoiceRow">
+              <button type="button" className="secondary" onClick={() => selectNewDocumentType("sae")}>SAELABEL</button>
+              <button type="button" className="secondary" onClick={() => selectNewDocumentType("glabels")}>glabels</button>
+            </div>
+            <div className="modalActions">
+              <button type="button" className="secondary" onClick={() => setShowNewTypeModal(false)}>Cancelar</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {showNewConfigModal && (
+        <div className="modalBackdrop">
+          <div className="modalCard" onClick={(e) => e.stopPropagation()}>
+            <h3>Configurar etiqueta ({newDocumentDraft.kind})</h3>
+            <div className="newDocGrid">
+              <label className="menuField">
+                Plantilla
+                <select value={selectedPresetId} onChange={(e) => applyPreset(e.target.value)}>
+                  {LABEL_PRESETS.map((p) => (
+                    <option key={p.id} value={p.id}>{p.name}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="menuField">
+                Nombre
+                <input value={newDocumentDraft.name} onChange={(e) => setNewDocumentDraft((p) => ({ ...p, name: e.target.value }))} />
+              </label>
+              <label className="menuField">
+                Ancho
+                <input type="number" min={0.1} step={0.1} value={newDocumentDraft.width} onChange={(e) => setNewDocumentDraft((p) => ({ ...p, width: Math.max(0.1, Number(e.target.value) || 0.1) }))} />
+              </label>
+              <label className="menuField">
+                Alto
+                <input type="number" min={0.1} step={0.1} value={newDocumentDraft.height} onChange={(e) => setNewDocumentDraft((p) => ({ ...p, height: Math.max(0.1, Number(e.target.value) || 0.1) }))} />
+              </label>
+              <label className="menuField">
+                Unidad
+                <select value={newDocumentDraft.unit} onChange={(e) => setNewDocumentDraft((p) => ({ ...p, unit: e.target.value as Unit }))}>
+                  <option value="mm">mm</option>
+                  <option value="cm">cm</option>
+                  <option value="in">in</option>
+                  <option value="pt">pt</option>
+                </select>
+              </label>
+              <label className="menuField">
+                Brand
+                <input value={newDocumentDraft.brand} onChange={(e) => setNewDocumentDraft((p) => ({ ...p, brand: e.target.value }))} />
+              </label>
+              <label className="menuField">
+                Description
+                <input value={newDocumentDraft.description} onChange={(e) => setNewDocumentDraft((p) => ({ ...p, description: e.target.value }))} />
+              </label>
+              <label className="menuField">
+                Part
+                <input value={newDocumentDraft.part} onChange={(e) => setNewDocumentDraft((p) => ({ ...p, part: e.target.value }))} />
+              </label>
+              <label className="menuField">
+                Size
+                <input value={newDocumentDraft.size} onChange={(e) => setNewDocumentDraft((p) => ({ ...p, size: e.target.value }))} />
+              </label>
+            </div>
+            <div className="modalActions">
+              <button type="button" className="secondary" onClick={() => { setShowNewConfigModal(false); setShowNewTypeModal(true); }}>Atras</button>
+              <button type="button" className="secondary" onClick={() => setShowNewConfigModal(false)}>Cancelar</button>
+              <button type="button" onClick={createConfiguredDocument}>Crear documento</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {showApiConfigModal && (
+        <div className="modalBackdrop" onClick={() => setShowApiConfigModal(false)}>
+          <div className="modalCard" onClick={(e) => e.stopPropagation()}>
+            <h3>Configurar API Base URL</h3>
+            <label className="menuField" style={{ marginBottom: "0.6rem" }}>
               API Base URL
               <input
                 type="text"
-                value={apiBaseUrl}
-                onChange={(e) => setApiBaseUrl(e.target.value)}
+                value={apiBaseUrlDraft}
+                onChange={(e) => setApiBaseUrlDraft(e.target.value)}
                 placeholder="https://localhost:7097"
               />
             </label>
+            <div className="modalActions">
+              <button type="button" className="secondary" onClick={() => setShowApiConfigModal(false)}>Cancelar</button>
+              <button type="button" className="secondary" onClick={async () => {
+                const next = apiBaseUrlDraft.trim();
+                if (!next) {
+                  setError("API Base URL no puede estar vacio.");
+                  return;
+                }
+                await pingBackend(next);
+              }}>Probar</button>
+              <button type="button" onClick={saveApiConfig}>Guardar</button>
+            </div>
           </div>
-          <div className="row">
-            <label className="grow">
-              Accion (aplica para ejecutar API)
-              <select value={action} onChange={(e) => setAction(e.target.value as Action)}>
-                <option value="parse">parse</option>
-                <option value="convert-to-glabels">convert-to-glabels</option>
-                <option value="convert-from-glabels">convert-from-glabels</option>
-              </select>
-            </label>
-            <button type="button" className="secondary" onClick={applyExample}>
-              Cargar ejemplo
-            </button>
-          </div>
-          <VisualCanvasEditor
-            xml={xml}
-            apiBaseUrl={apiBaseUrl}
-            timeoutMs={timeoutMs}
-            onXmlChange={(nextXml) => {
-              setXml(nextXml);
-              setError("");
-            }}
-          />
-        </>
-      ) : (
-        <>
-
-      <div className="row">
-        <label className="grow">
-          API Base URL
-          <input
-            type="text"
-            value={apiBaseUrl}
-            onChange={(e) => setApiBaseUrl(e.target.value)}
-            placeholder="https://localhost:7097"
-          />
-        </label>
-        <button type="button" className="secondary" onClick={pingBackend}>
-          Probar conexion
-        </button>
-      </div>
-      {pingStatus ? <p className="hint">{pingStatus}</p> : null}
-
-      <div className="row">
-        <label className="grow">
-          Timeout (ms)
-          <input
-            type="number"
-            min={1000}
-            step={1000}
-            value={timeoutMs}
-            onChange={(e) => setTimeoutMs(Math.max(1000, Number(e.target.value) || 1000))}
-          />
-        </label>
-        <button type="button" className="secondary" onClick={saveSession}>
-          Guardar sesion
-        </button>
-      </div>
-
-      <div className="row">
-        <label className="grow">
-          Sesion guardada
-          <select value={selectedSessionId} onChange={(e) => setSelectedSessionId(e.target.value)}>
-            <option value="">Selecciona una sesion</option>
-            {sessions.map((session) => (
-              <option key={session.id} value={session.id}>
-                {session.name} - {new Date(session.createdAt).toLocaleString()}
-              </option>
-            ))}
-          </select>
-        </label>
-        <button type="button" className="secondary" onClick={loadSession} disabled={!selectedSessionId}>
-          Cargar sesion
-        </button>
-        <button type="button" className="secondary" onClick={deleteSession} disabled={!selectedSessionId}>
-          Eliminar sesion
-        </button>
-      </div>
-
-      <div className="row">
-        <label className="grow">
-          Accion
-          <select value={action} onChange={(e) => setAction(e.target.value as Action)}>
-            <option value="parse">parse</option>
-            <option value="convert-to-glabels">convert-to-glabels</option>
-            <option value="convert-from-glabels">convert-from-glabels</option>
-          </select>
-        </label>
-        <button type="button" className="secondary" onClick={applyExample}>
-          Cargar ejemplo
-        </button>
-        <button type="button" className="secondary" onClick={() => fileInputRef.current?.click()}>
-          Importar XML
-        </button>
-        <button type="button" className="secondary" onClick={downloadInput} disabled={!xml.trim()}>
-          Descargar entrada
-        </button>
-      </div>
-      <input ref={fileInputRef} type="file" accept=".xml,.txt" hidden onChange={importInput} />
-
-      <label>
-        XML de entrada
-        <textarea value={xml} onChange={(e) => setXml(e.target.value)} rows={12} />
-      </label>
-
-      <div className="actions">
-        <button type="button" onClick={run} disabled={loading}>
-          {loading ? "Procesando..." : buttonLabel}
-        </button>
-        <button
-          type="button"
-          className="secondary"
-          onClick={() => {
-            setResult("");
-            setError("");
-          }}
-        >
-          Limpiar salida
-        </button>
-      </div>
-
-      {error ? <pre className="error">{error}</pre> : null}
-
-      <div className="resultHeader">
-        <h2>Resultado</h2>
-        <div className="resultActions">
-          <button type="button" className="secondary" onClick={copyResult} disabled={!result}>
-            Copiar
-          </button>
-          <button type="button" className="secondary" onClick={downloadResult} disabled={!result}>
-            Descargar
-          </button>
         </div>
-      </div>
-      <pre>{result || "Sin resultado todavia."}</pre>
-
-      <div className="historyHeader">
-        <h2>Historial</h2>
-        <button type="button" className="secondary" onClick={() => setHistory([])} disabled={history.length === 0}>
-          Limpiar historial
-        </button>
-      </div>
-      <ul className="history">
-        {history.length === 0 ? (
-          <li className="empty">Sin ejecuciones registradas.</li>
-        ) : (
-          history.map((item) => (
-            <li key={item.id} className={item.ok ? "ok" : "fail"}>
-              <span>{new Date(item.createdAt).toLocaleString()}</span>
-              <span>{item.action}</span>
-              <span>{item.elapsedMs} ms</span>
-              <span>{item.ok ? "OK" : item.errorMessage ?? "Error"}</span>
-            </li>
-          ))
-        )}
-      </ul>
-        </>
+      )}
+      {showResultModal && (
+        <div className="modalBackdrop" onClick={() => setShowResultModal(false)}>
+          <div className="modalCard" onClick={(e) => e.stopPropagation()}>
+            <h3>Resultado actual</h3>
+            <pre style={{ maxHeight: "55vh", marginBottom: "0.6rem" }}>{result || "Sin resultado todavia."}</pre>
+            <div className="modalActions">
+              <button type="button" className="secondary" onClick={() => setShowResultModal(false)}>Cerrar</button>
+              <button type="button" className="secondary" onClick={copyResult} disabled={!result}>Copiar</button>
+            </div>
+          </div>
+        </div>
       )}
 
       <style>{`
+        .panel.visualMode {
+          display: flex;
+          flex-direction: column;
+          overflow: hidden;
+          min-height: 0;
+        }
         h1 {
           margin-top: 0;
-          margin-bottom: 0.5rem;
+          margin-bottom: 0.25rem;
+          font-weight: 800;
+          letter-spacing: -0.02em;
+          color: var(--text);
         }
         h2 {
           margin: 0;
           font-size: 1rem;
+          font-weight: 700;
+          color: var(--text);
         }
         p {
-          color: #4d5a66;
+          color: var(--muted);
           margin-top: 0;
-          margin-bottom: 1rem;
+          margin-bottom: 1.5rem;
+          line-height: 1.6;
         }
         .hint {
-          margin: -0.25rem 0 0.8rem;
-          font-size: 0.9rem;
-          color: #2f4c61;
+          margin: -0.75rem 0 1rem;
+          font-size: 0.85rem;
+          color: var(--accent);
+          font-weight: 500;
         }
         .viewToggle {
           display: flex;
-          gap: 0.45rem;
-          margin: 0.8rem 0 1rem;
+          gap: 0.5rem;
+          margin: 1.25rem 0;
+          background: #f1f5f9;
+          padding: 0.25rem;
+          border-radius: 10px;
+          width: fit-content;
         }
         label {
           display: block;
-          margin-bottom: 0.75rem;
+          margin-bottom: 0.85rem;
           font-weight: 600;
+          font-size: 0.9rem;
+          color: var(--text);
         }
         input, select, textarea {
-          margin-top: 0.35rem;
+          margin-top: 0.4rem;
           width: 100%;
-          border: 1px solid #d8dee4;
+          border: 1px solid var(--border);
           border-radius: 8px;
-          font-family: Consolas, "Courier New", monospace;
+          font-family: inherit;
           font-size: 0.9rem;
-          padding: 0.6rem;
+          padding: 0.65rem 0.75rem;
           box-sizing: border-box;
           background: #fff;
+          transition: all 0.2s ease;
+          color: var(--text);
+        }
+        textarea, pre {
+          font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace !important;
+        }
+        input:focus, select:focus, textarea:focus {
+          outline: none;
+          border-color: var(--accent);
+          box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.1);
         }
         textarea {
-          min-height: 260px;
+          min-height: 280px;
           resize: vertical;
+          line-height: 1.5;
         }
         .row {
           display: flex;
-          gap: 0.6rem;
+          gap: 0.75rem;
           align-items: end;
-          margin-bottom: 0.2rem;
+          margin-bottom: 1rem;
         }
         .grow {
           flex: 1;
         }
         .actions {
           display: flex;
-          gap: 0.6rem;
-          margin-bottom: 0.85rem;
+          gap: 0.75rem;
+          margin: 1.5rem 0;
         }
         .resultHeader {
           display: flex;
           align-items: center;
           justify-content: space-between;
-          margin-bottom: 0.45rem;
+          margin: 1.5rem 0 0.75rem;
         }
         .historyHeader {
-          margin-top: 0.8rem;
+          margin-top: 2rem;
           display: flex;
           align-items: center;
           justify-content: space-between;
         }
         .resultActions {
           display: flex;
-          gap: 0.45rem;
+          gap: 0.5rem;
         }
         button {
-          background: #0f7b6c;
+          background: var(--accent);
           color: white;
           border: 0;
           border-radius: 8px;
-          padding: 0.6rem 1rem;
-          font-weight: 700;
+          padding: 0.65rem 1.25rem;
+          font-weight: 600;
+          font-size: 0.9rem;
           cursor: pointer;
           white-space: nowrap;
+          transition: all 0.2s ease;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+        }
+        button:hover:not(:disabled) {
+          filter: brightness(1.1);
+          transform: translateY(-1px);
+        }
+        button:active:not(:disabled) {
+          transform: translateY(0);
         }
         button.secondary {
-          background: #eff3f6;
-          color: #20313d;
-          border: 1px solid #d1dae2;
+          background: #ffffff;
+          color: var(--text);
+          border: 1px solid var(--border);
+          box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+        }
+        button.secondary:hover:not(:disabled) {
+          background: #f8fafc;
+          border-color: #cbd5e1;
         }
         button.active {
-          background: #0f7b6c;
+          background: var(--accent);
           color: #fff;
-          border: 1px solid #0f7b6c;
+          box-shadow: 0 4px 12px rgba(15, 118, 110, 0.2);
         }
         button:disabled {
-          opacity: 0.7;
-          cursor: default;
+          opacity: 0.5;
+          cursor: not-allowed;
         }
         pre {
           margin-top: 0;
-          background: #f2f6fa;
-          border: 1px solid #d8dee4;
-          border-radius: 8px;
-          padding: 0.75rem;
+          background: #f8fafc;
+          border: 1px solid var(--border);
+          border-radius: 10px;
+          padding: 1rem;
           overflow: auto;
-          max-height: 360px;
+          max-height: 400px;
           white-space: pre-wrap;
           word-break: break-word;
+          font-size: 0.85rem;
+          color: var(--text);
         }
         .error {
-          border-color: #dd3b3b;
-          color: #a11f1f;
-          background: #fff0f0;
+          border-color: #fca5a5;
+          color: #991b1b;
+          background: #fef2f2;
+          font-weight: 500;
         }
         .history {
-          margin: 0.45rem 0 0;
+          margin: 0.75rem 0 0;
           padding: 0;
           list-style: none;
-          border: 1px solid #d8dee4;
-          border-radius: 8px;
+          border: 1px solid var(--border);
+          border-radius: 10px;
           overflow: hidden;
+          background: #fff;
         }
         .history li {
           display: grid;
-          grid-template-columns: 1.4fr 1fr 0.7fr 2fr;
-          gap: 0.5rem;
-          padding: 0.55rem 0.65rem;
-          border-top: 1px solid #e7edf2;
+          grid-template-columns: 1.4fr 1.2fr 0.8fr 2fr;
+          gap: 0.75rem;
+          padding: 0.75rem 1rem;
+          border-top: 1px solid var(--border);
           font-size: 0.85rem;
-          font-family: Consolas, "Courier New", monospace;
-          background: #fff;
+          align-items: center;
         }
         .history li:first-child {
           border-top: 0;
         }
         .history li.ok {
-          border-left: 3px solid #0f7b6c;
+          border-left: 4px solid var(--accent);
         }
         .history li.fail {
-          border-left: 3px solid #b73a3a;
-          background: #fff7f7;
+          border-left: 4px solid #ef4444;
+          background: #fffafa;
+        }
+        .history span:first-child {
+          color: var(--muted);
+          font-size: 0.8rem;
         }
         .history .empty {
           display: block;
-          font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
-          color: #4d5a66;
+          padding: 2rem;
+          text-align: center;
+          color: var(--muted);
         }
-        .editorPanel {
-          border: 1px solid #d8dee4;
-          border-radius: 10px;
-          background: #f8fbfd;
-          padding: 0.75rem;
-        }
-        .editorToolbar {
-          display: flex;
-          align-items: center;
-          gap: 0.6rem;
-          margin-bottom: 0.7rem;
-        }
-        .libraryPanel {
-          display: grid;
-          grid-template-columns: 1fr 1fr;
-          gap: 0.7rem;
-          margin-bottom: 0.7rem;
-        }
-        .libraryPanel > div {
-          border: 1px solid #d8dee4;
-          border-radius: 8px;
-          background: #fff;
-          padding: 0.55rem;
-        }
-        .libraryPanel p {
-          margin: 0 0 0.45rem;
-          font-size: 0.82rem;
-        }
-        .libraryList {
-          display: flex;
-          flex-wrap: wrap;
-          gap: 0.4rem;
-        }
-        .libraryItem {
-          min-width: 7.5rem;
-          text-align: left;
-          background: #f4f8fb;
-          border: 1px solid #d5e0ea;
-          border-radius: 8px;
-          color: #1f3342;
-          padding: 0.45rem;
-          cursor: grab;
-          display: flex;
-          flex-direction: column;
-          gap: 0.1rem;
-        }
-        .libraryItem small {
-          font-size: 0.72rem;
-          color: #4b6273;
-        }
-        .docControls {
-          display: flex;
-          gap: 0.4rem;
-          margin-bottom: 0.4rem;
-          align-items: center;
-          flex-wrap: wrap;
-        }
-        .docStatus {
-          margin: 0.2rem 0 0;
-          font-size: 0.8rem;
-          color: #21465d;
-        }
-        .editorToolbar label {
-          margin-bottom: 0;
-          flex: 1;
-        }
-        .editorViewport {
-          border: 1px solid #ced9e3;
-          background: #eaf0f5;
-          border-radius: 8px;
-          overflow: auto;
-          padding: 0.75rem;
-        }
-        .editorGrid {
-          display: grid;
-          grid-template-columns: 2fr 1fr;
-          gap: 0.7rem;
-          align-items: start;
-        }
-        .canvasBoard {
-          position: relative;
-          margin: 0 auto;
-          background:
-            linear-gradient(to right, rgba(15, 123, 108, 0.08) 1px, transparent 1px),
-            linear-gradient(to bottom, rgba(15, 123, 108, 0.08) 1px, transparent 1px),
-            #ffffff;
-          background-size: 20px 20px;
-          border: 1px solid #b7c6d4;
-          border-radius: 8px;
-        }
-        .canvasObject {
-          position: absolute;
-          border: 1px solid #0f7b6c;
-          background: rgba(15, 123, 108, 0.12);
-          color: #173444;
-          border-radius: 6px;
-          padding: 0.2rem 0.3rem;
-          text-align: left;
-          overflow: hidden;
-          cursor: move;
-          font-size: 0.72rem;
-          display: flex;
-          flex-direction: column;
-          gap: 0.1rem;
-        }
-        .canvasObject.selected {
-          border-color: #d95f02;
-          background: rgba(217, 95, 2, 0.13);
-        }
-        .canvasObject small {
-          font-size: 0.65rem;
-          opacity: 0.85;
-        }
-        .resizeHandle {
-          position: absolute;
-          width: 9px;
-          height: 9px;
-          border-radius: 2px;
-          border: 1px solid #123746;
-          background: #ffffff;
-        }
-        .resizeHandle.n {
-          top: -5px;
-          left: calc(50% - 5px);
-          cursor: ns-resize;
-        }
-        .resizeHandle.s {
-          bottom: -5px;
-          left: calc(50% - 5px);
-          cursor: ns-resize;
-        }
-        .resizeHandle.e {
-          right: -5px;
-          top: calc(50% - 5px);
-          cursor: ew-resize;
-        }
-        .resizeHandle.w {
-          left: -5px;
-          top: calc(50% - 5px);
-          cursor: ew-resize;
-        }
-        .resizeHandle.ne {
-          top: -5px;
-          right: -5px;
-          cursor: nesw-resize;
-        }
-        .resizeHandle.nw {
-          top: -5px;
-          left: -5px;
-          cursor: nwse-resize;
-        }
-        .resizeHandle.se {
-          right: -5px;
-          bottom: -5px;
-          cursor: nwse-resize;
-        }
-        .resizeHandle.sw {
-          left: -5px;
-          bottom: -5px;
-          cursor: nesw-resize;
-        }
-        .inspector {
-          border: 1px solid #d8dee4;
-          border-radius: 8px;
-          background: #fff;
-          padding: 0.55rem;
-        }
-        .inspector h3,
-        .variablesPanel h3 {
-          margin: 0 0 0.55rem;
-          font-size: 0.92rem;
-        }
-        .inspectorFields {
-          display: grid;
-          grid-template-columns: 1fr 1fr;
-          gap: 0.5rem;
-        }
-        .inspectorFields label {
-          margin: 0;
-          font-size: 0.8rem;
-        }
-        .inspectorFields .fullWidth {
-          grid-column: 1 / -1;
-        }
-        .inspectorFields input {
-          margin-top: 0.2rem;
-        }
-        .variablesPanel {
-          margin-top: 0.75rem;
-          border: 1px solid #d8dee4;
-          border-radius: 8px;
-          background: #fff;
-          padding: 0.55rem;
-        }
-        .varHead, .varRow {
-          display: grid;
-          grid-template-columns: 1fr 1fr 1fr 1fr 0.8fr 1.4fr;
-          gap: 0.35rem;
-          align-items: center;
-        }
-        .varHead {
-          font-size: 0.74rem;
-          font-weight: 700;
-          color: #3c5668;
-          margin-bottom: 0.35rem;
-        }
-        .varRow {
-          margin-bottom: 0.35rem;
-        }
-        .varRow input, .varRow select {
-          margin-top: 0;
-          padding: 0.4rem;
-          font-size: 0.77rem;
-        }
-        .valid {
-          font-size: 0.73rem;
-          color: #13715f;
-        }
-        .invalid {
-          font-size: 0.73rem;
-          color: #ad1f1f;
-        }
-        .editorMeta {
-          margin-top: 0.6rem;
-          display: flex;
-          flex-wrap: wrap;
-          gap: 0.45rem 0.7rem;
-          font-size: 0.83rem;
-          color: #385060;
-        }
-        .editorError {
-          border: 1px solid #dd3b3b;
-          background: #fff1f1;
-          color: #8d1d1d;
-          border-radius: 8px;
-          padding: 0.65rem 0.7rem;
-        }
-        .visualMode {
-          min-height: calc(100vh - 3rem);
-          display: flex;
-          flex-direction: column;
-        }
+        
+        /* Studio & Editor Styles */
         .editorStudio {
           display: grid;
-          grid-template-rows: auto 1fr;
-          min-height: calc(100vh - 13rem);
-          border: 1px solid #d8dee4;
+          grid-template-rows: auto minmax(0, 1fr) auto;
+          border: 1px solid var(--border);
           border-radius: 12px;
           overflow: hidden;
-          background: #f3f8fc;
+          background: #f8fafc;
+          min-height: 0;
+          flex: 1 1 auto;
         }
         .studioTopbar {
-          display: grid;
-          grid-template-columns: 1fr 1.2fr;
-          gap: 0.5rem;
-          align-items: center;
           background: #ffffff;
-          border-bottom: 1px solid #d8dee4;
-          padding: 0.45rem 0.55rem;
+          border-bottom: 1px solid var(--border);
+          padding: 0.75rem 1rem;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          flex-wrap: wrap;
+          gap: 1rem;
+          flex: 0 0 auto;
         }
         .toolbarGroup {
           display: flex;
           align-items: center;
-          gap: 0.35rem;
-          min-width: 0;
+          gap: 0.75rem;
+        }
+        .toolbarDivider {
+          width: 1px;
+          height: 1.5rem;
+          background: var(--border);
+          margin: 0 0.5rem;
+        }
+        .fileMenuContainer {
+          position: relative;
+        }
+        .fileMenuDropdown {
+          position: absolute;
+          top: 100%;
+          left: 0;
+          margin-top: 0.5rem;
+          background: #ffffff;
+          border: 1px solid var(--border);
+          border-radius: 8px;
+          box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+          min-width: 200px;
+          padding: 0.5rem 0;
+          z-index: 100;
+          display: flex;
+          flex-direction: column;
+        }
+        .fileMenuDropdown button {
+          background: transparent;
+          color: var(--text);
+          border: 0;
+          padding: 0.65rem 1rem;
+          text-align: left;
+          font-size: 0.85rem;
+          cursor: pointer;
+          transition: background 0.15s;
+          width: 100%;
+          border-radius: 0;
+        }
+        .fileMenuDropdown button:hover {
+          background: #f1f5f9;
+        }
+        .fileMenuDropdown .menuDivider {
+          height: 1px;
+          background: var(--border);
+          margin: 0.4rem 0;
+        }
+        .fileMenuDropdown .menuLabel {
+          padding: 0.4rem 1rem 0.2rem;
+          font-size: 0.7rem;
+          font-weight: 700;
+          color: var(--muted);
+          text-transform: uppercase;
+          letter-spacing: 0.05em;
+        }
+        .fileMenuDropdown .recentItem {
+          font-size: 0.8rem;
+          color: var(--muted);
+          padding: 0.5rem 1rem;
+        }
+        .fileMenuDropdown .recentItem:hover {
+          color: var(--accent);
+        }
+
+        /* Modal Properties */
+        .modalOverlay {
+          position: fixed;
+          inset: 0;
+          background: rgba(15, 23, 42, 0.65);
+          backdrop-filter: blur(4px);
+          z-index: 1000;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 2rem;
+        }
+        .propertiesModal {
+          background: #ffffff;
+          border-radius: 12px;
+          box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+          width: 100%;
+          max-width: 500px;
+          display: flex;
+          flex-direction: column;
+          overflow: hidden;
+          animation: modalSlide 0.3s ease-out;
+        }
+        @keyframes modalSlide {
+          from { transform: translateY(20px); opacity: 0; }
+          to { transform: translateY(0); opacity: 1; }
+        }
+        .modalHeader {
+          padding: 1.25rem 1.5rem;
+          border-bottom: 1px solid var(--border);
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          background: #f8fafc;
+        }
+        .modalHeader h3 {
+          margin: 0;
+          font-size: 1.1rem;
+          color: var(--text);
+          font-weight: 700;
+        }
+        .closeBtn {
+          background: transparent;
+          border: 0;
+          font-size: 1.5rem;
+          color: var(--muted);
+          cursor: pointer;
+          padding: 0;
+          line-height: 1;
+        }
+        .closeBtn:hover {
+          color: var(--text);
+        }
+        .modalBody {
+          padding: 1.5rem;
+          display: flex;
+          flex-direction: column;
+          gap: 1.25rem;
+        }
+        .fieldGroup {
+          display: flex;
+          flex-direction: column;
+          gap: 0.4rem;
+        }
+        .fieldRow {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 1rem;
+        }
+        .fieldGroup label {
+          font-size: 0.75rem;
+          font-weight: 700;
+          color: var(--muted);
+          text-transform: uppercase;
+          letter-spacing: 0.025em;
+        }
+        .fieldGroup input {
+          padding: 0.6rem 0.75rem;
+          border: 1px solid var(--border);
+          border-radius: 6px;
+          font-size: 0.9rem;
+          transition: border-color 0.2s;
+        }
+        .fieldGroup input:focus {
+          border-color: var(--accent);
+          outline: none;
+          box-shadow: 0 0 0 2px rgba(15, 118, 110, 0.1);
+        }
+        .modalFooter {
+          padding: 1.25rem 1.5rem;
+          border-top: 1px solid var(--border);
+          background: #f8fafc;
+          display: flex;
+          justify-content: flex-end;
+          gap: 0.75rem;
+        }
+        .modalFooter button {
+          padding: 0.6rem 1.25rem;
+          font-size: 0.9rem;
+          font-weight: 600;
+          border-radius: 6px;
+          border: 1px solid var(--border);
+          background: #ffffff;
+          color: var(--text);
+          cursor: pointer;
+          transition: all 0.2s;
+        }
+        .modalFooter button.primary {
+          background: var(--accent);
+          color: #ffffff;
+          border-color: var(--accent);
+        }
+        .modalFooter button:hover {
+          filter: brightness(0.95);
         }
         .zoomLabel {
           display: flex;
           align-items: center;
-          gap: 0.35rem;
-          margin: 0;
-          font-size: 0.78rem;
-          min-width: 10rem;
-        }
-        .zoomLabel input {
-          margin: 0;
+          gap: 0.5rem;
+          font-size: 0.8rem;
+          font-weight: 600;
+          margin-bottom: 0;
         }
         .zoomBadge {
-          font-family: Consolas, "Courier New", monospace;
-          font-size: 0.75rem;
-          color: #32576d;
-          min-width: 3.1rem;
+          font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+          font-size: 0.8rem;
+          background: #f1f5f9;
+          padding: 0.2rem 0.4rem;
+          border-radius: 4px;
+          color: var(--muted);
+        }
+        .sizeLabel {
+          gap: 0.35rem;
+          min-width: 112px;
+        }
+        .sizeAxis {
+          font-size: 0.72rem;
+          font-weight: 800;
+          color: var(--muted);
+          min-width: 12px;
+          text-align: center;
+        }
+        .unitInput {
+          position: relative;
+          display: inline-flex;
+          align-items: center;
+        }
+        .unitInput input {
+          width: 6.2rem;
+          margin-top: 0;
+          padding-right: 2.05rem;
+        }
+        .unitInput small {
+          position: absolute;
+          right: 0.55rem;
+          font-size: 0.7rem;
+          font-weight: 700;
+          color: var(--muted);
+          pointer-events: none;
+          text-transform: lowercase;
         }
         .mini {
-          padding: 0.35rem 0.55rem;
-          font-size: 0.75rem;
+          padding: 0.4rem 0.75rem;
+          font-size: 0.8rem;
           border-radius: 6px;
         }
-        .docs input,
-        .docs select {
-          margin: 0;
-          padding: 0.35rem;
-          font-size: 0.76rem;
-        }
-        .docs input {
-          min-width: 9rem;
+        .editorStudio {
+          display: flex;
+          flex-direction: column;
+          height: 100vh;
+          overflow: hidden;
+          background: #f1f5f9;
         }
         .studioBody {
           display: grid;
-          grid-template-columns: 250px minmax(0, 1fr) 280px;
+          flex: 1;
           min-height: 0;
+          overflow: hidden;
         }
-        .leftSidebar,
-        .rightSidebar {
+        .sidebarResizer {
+          background: #e2e8f0;
+          cursor: col-resize;
+          position: relative;
+          z-index: 5;
+        }
+        .sidebarResizer::before {
+          content: "";
+          position: absolute;
+          inset: 0;
+          background: linear-gradient(to right, transparent, rgba(15, 118, 110, 0.25), transparent);
+          opacity: 0;
+          transition: opacity 0.12s ease;
+        }
+        .sidebarResizer:hover::before {
+          opacity: 1;
+        }
+        .leftSidebar, .rightSidebar {
           background: #fff;
-          border-right: 1px solid #d8dee4;
-          padding: 0.5rem;
-          overflow: auto;
+          display: flex;
+          flex-direction: column;
+          overflow: hidden;
+          min-height: 0;
+          height: 100%;
+          border-color: var(--border);
         }
-        .rightSidebar {
-          border-right: 0;
-          border-left: 1px solid #d8dee4;
+        .leftSidebar { border-right: 1px solid var(--border); }
+        .rightSidebar { border-left: 1px solid var(--border); }
+        
+        .sidebarHeader {
+          padding: 1rem 1.25rem 0.5rem;
+          flex: 0 0 auto;
         }
-        .leftSidebar h3,
-        .rightSidebar h3 {
-          margin: 0 0 0.45rem;
-          font-size: 0.86rem;
+        .sidebarTabs {
+          display: flex;
+          background: #f1f5f9;
+          padding: 0.35rem;
+          gap: 0.25rem;
+          flex: 0 0 auto;
         }
-        .leftSidebar h4 {
-          margin: 0.6rem 0 0.35rem;
-          font-size: 0.8rem;
-          color: #355264;
+        .sidebarTab {
+          flex: 1;
+          padding: 0.5rem 0.25rem;
+          font-size: 0.75rem;
+          font-weight: 700;
+          text-transform: uppercase;
+          letter-spacing: 0.02em;
+          border-radius: 6px;
+          border: 0;
+          background: transparent;
+          color: var(--muted);
+          cursor: pointer;
+          transition: all 0.2s ease;
+          white-space: nowrap;
         }
+        .sidebarTab:hover {
+          color: var(--text);
+          background: rgba(255,255,255,0.5);
+        }
+        .sidebarTab.active {
+          background: #fff;
+          color: var(--accent);
+          box-shadow: 0 2px 6px rgba(0,0,0,0.06);
+        }
+        
+        .sidebarScroll {
+          flex: 1;
+          overflow-y: auto;
+          overflow-x: hidden;
+          padding: 1.25rem;
+          display: flex;
+          flex-direction: column;
+          gap: 1.25rem;
+        }
+        /* Custom scrollbar */
+        .sidebarScroll::-webkit-scrollbar { width: 6px; }
+        .sidebarScroll::-webkit-scrollbar-track { background: transparent; }
+        .sidebarScroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+        .sidebarScroll::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        
+        .studioBody h3 {
+          margin: 0 0 1rem;
+          font-size: 0.9rem;
+          text-transform: uppercase;
+          letter-spacing: 0.05em;
+          color: var(--muted);
+        }
+        .studioBody h4 {
+          margin: 1.5rem 0 0.75rem;
+          font-size: 0.9rem;
+          color: var(--text);
+        }
+        
         .paletteGrid {
           display: grid;
           grid-template-columns: 1fr 1fr;
-          gap: 0.3rem;
+          gap: 0.75rem;
         }
         .paletteCard {
-          border: 1px solid #d6e1e9;
-          border-radius: 8px;
-          padding: 0.3rem;
-          background: #f7fbff;
+          background: #fff;
+          border: 1px solid var(--border);
+          border-radius: 10px;
+          padding: 0.5rem;
+          transition: all 0.2s ease;
+        }
+        .paletteCard:hover {
+          border-color: var(--accent);
+          box-shadow: 0 4px 12px rgba(15, 118, 110, 0.05);
         }
         .iconBtn {
-          width: 100%;
-          background: #eef6ff;
-          border: 1px solid #cfdde9;
-          color: #1b3448;
-          border-radius: 6px;
-          padding: 0.2rem;
           display: flex;
+          width: 100%;
+          background: #f8fafc;
+          border: 1px solid transparent;
+          color: var(--text);
+          padding: 0.75rem 0.5rem;
+          border-radius: 8px;
+          cursor: grab;
           flex-direction: column;
           align-items: center;
-          gap: 0.05rem;
-          cursor: grab;
+          gap: 0.25rem;
+          user-select: none;
         }
         .iconBtn .ico {
-          font-family: Consolas, "Courier New", monospace;
-          font-size: 0.72rem;
-          font-weight: 700;
-          line-height: 1.1;
+          font-size: 1.2rem;
+          font-weight: 800;
+          color: var(--accent);
         }
         .iconBtn small {
-          font-size: 0.66rem;
-          line-height: 1;
+          font-size: 0.7rem;
+          font-weight: 600;
+          color: var(--muted);
+        }
+        .iconBtn .eid {
+          font-size: 0.62rem;
+          font-weight: 500;
+          max-width: 100%;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+          opacity: 0.8;
         }
         .paletteActions {
-          margin-top: 0.25rem;
+          margin-top: 0.5rem;
           display: flex;
           gap: 0.25rem;
+          align-items: center;
+        }
+        .paletteActions button {
+          flex: 1;
+        }
+        .baseTag {
+          display: inline-flex;
+          align-items: center;
           justify-content: center;
+          width: 100%;
+          border: 1px solid var(--border);
+          border-radius: 6px;
+          background: #f8fafc;
+          color: var(--muted);
+          font-size: 0.72rem;
+          font-weight: 700;
+          padding: 0.22rem 0.35rem;
+          text-transform: uppercase;
+          letter-spacing: 0.04em;
         }
+        .editHint {
+          margin-top: 1rem;
+          margin-bottom: 0;
+          font-size: 0.8rem;
+          color: var(--muted);
+          background: #f8fafc;
+          border: 1px dashed var(--border);
+          border-radius: 8px;
+          padding: 0.6rem 0.75rem;
+        }
+        .editModeSwitch {
+          display: inline-flex;
+          align-items: center;
+          gap: 0.35rem;
+          margin-bottom: 0;
+          user-select: none;
+          cursor: pointer;
+          color: var(--muted);
+        }
+        .editModeSwitch input {
+          display: none;
+        }
+        .editModeSwitch .track {
+          width: 30px;
+          height: 16px;
+          border-radius: 999px;
+          background: #cbd5e1;
+          position: relative;
+          transition: background 0.15s ease;
+        }
+        .editModeSwitch .thumb {
+          position: absolute;
+          top: 2px;
+          left: 2px;
+          width: 12px;
+          height: 12px;
+          border-radius: 50%;
+          background: #fff;
+          box-shadow: 0 1px 2px rgba(0,0,0,0.22);
+          transition: transform 0.15s ease;
+        }
+        .editModeSwitch small {
+          font-size: 0.72rem;
+          font-weight: 700;
+          letter-spacing: 0.02em;
+          text-transform: uppercase;
+        }
+        .editModeSwitch input:checked + .track {
+          background: var(--accent);
+        }
+        .editModeSwitch input:checked + .track .thumb {
+          transform: translateX(14px);
+        }
+        .editModeSwitch.mini .track {
+          width: 24px;
+          height: 12px;
+        }
+        .editModeSwitch.mini .thumb {
+          width: 8px;
+          height: 8px;
+        }
+        .editModeSwitch.mini input:checked + .track .thumb {
+          transform: translateX(12px);
+        }
+        .editModeSwitch.mini .track {
+          width: 24px;
+          height: 12px;
+        }
+        .editModeSwitch.mini .thumb {
+          width: 8px;
+          height: 8px;
+        }
+        .editModeSwitch.mini input:checked + .track .thumb {
+          transform: translateX(12px);
+        }
+        
         .elementForm {
-          display: grid;
-          gap: 0.3rem;
+          display: flex;
+          flex-direction: column;
+          gap: 0.75rem;
+          padding: 1rem;
+          background: #f8fafc;
+          border-radius: 10px;
+          border: 1px solid var(--border);
         }
-        .elementForm input,
-        .elementForm select {
-          margin: 0;
-          padding: 0.3rem;
-          font-size: 0.74rem;
+        .elementForm input, .elementForm select {
+          margin-top: 0;
+          padding: 0.5rem;
+          font-size: 0.85rem;
         }
         .sizeRow {
           display: grid;
           grid-template-columns: 1fr 1fr;
-          gap: 0.3rem;
+          gap: 0.5rem;
         }
         .formActions {
           display: flex;
-          gap: 0.3rem;
+          gap: 0.5rem;
         }
+        
         .canvasArea {
-          min-width: 0;
-          min-height: 0;
-          background: #e9f0f7;
+          background: #e2e8f0;
           display: flex;
           flex-direction: column;
+          overflow: hidden;
+          min-height: 0;
         }
         .canvasViewport {
+          position: relative;
           flex: 1;
           min-height: 0;
+          padding: 2rem;
           overflow: auto;
-          padding: 0.6rem;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+        .studioFooter {
+          border-top: 1px solid var(--border);
+          background: #fff;
+          padding: 0.75rem 1.25rem;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          flex: 0 0 auto;
+          box-shadow: 0 -4px 12px rgba(0,0,0,0.03);
+          z-index: 50;
+        }
+        .footerMeta {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          width: 100%;
+        }
+        .metaStats {
+          display: flex;
+          gap: 1.5rem;
+          font-size: 0.85rem;
+          color: var(--muted);
+          font-weight: 500;
+        }
+        .metaToggle {
+          display: flex;
+          align-items: center;
+          gap: 0.75rem;
+          color: var(--muted);
+          cursor: pointer;
+        }
+        .metaToggle small {
+          font-weight: 700;
+          font-size: 0.72rem;
+          text-transform: uppercase;
+          letter-spacing: 0.02em;
         }
         .canvasBoard {
-          margin: 0 auto;
+          position: relative;
+          background: #ffffff;
+          background-image: 
+            linear-gradient(to right, rgba(15, 118, 110, 0.05) 1px, transparent 1px),
+            linear-gradient(to bottom, rgba(15, 118, 110, 0.05) 1px, transparent 1px);
+          background-size: 20px 20px;
+          border-radius: 4px;
+          box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+          transform-origin: center;
         }
+        .canvasBoard.dragOver {
+          box-shadow: 0 0 0 2px rgba(15, 118, 110, 0.45), 0 10px 30px rgba(0,0,0,0.1);
+        }
+        .canvasBoard.transform-rotate {
+          cursor: grab;
+        }
+        .canvasBoard.transform-skewAuto,
+        .canvasBoard.transform-skewX {
+          cursor: ew-resize;
+        }
+        .canvasBoard.transform-skewY {
+          cursor: ns-resize;
+        }
+        .selectionRect {
+          position: absolute;
+          pointer-events: none;
+          z-index: 25;
+        }
+        .selectionRect.touch {
+          border: 1px dashed #1784d0;
+          background: rgba(23, 132, 208, 0.16);
+        }
+        .selectionRect.contain {
+          border: 1px solid #0f7b6c;
+          background: rgba(15, 123, 108, 0.12);
+        }
+        .groupOutline {
+          position: absolute;
+          pointer-events: none;
+          border: 1px dashed rgba(15, 118, 110, 0.55);
+          background: rgba(15, 118, 110, 0.04);
+          border-radius: 6px;
+          z-index: 12;
+        }
+        .groupOutline.selected {
+          border: 1.5px solid rgba(245, 158, 11, 0.8);
+          background: rgba(245, 158, 11, 0.06);
+        }
+        .canvasObject {
+          position: absolute;
+          border: 1.5px solid var(--accent);
+          background: rgba(15, 118, 110, 0.05);
+          color: var(--text);
+          border-radius: 4px;
+          padding: 0.4rem;
+          font-size: 0.75rem;
+          cursor: move;
+          display: flex;
+          flex-direction: column;
+          gap: 0.2rem;
+          user-select: none;
+          transition: none !important;
+        }
+        .canvasObject:hover {
+          filter: none;
+        }
+        .canvasObject span { font-weight: 700; text-transform: uppercase; font-size: 0.65rem; color: var(--accent); }
+        .canvasObject.selected {
+          border-color: #f59e0b;
+          background: rgba(245, 158, 11, 0.1);
+          box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.2);
+          z-index: 20;
+        }
+        .canvasObject.transforming.rotate,
+        .canvasObject.transforming.skewAuto,
+        .canvasObject.transforming.skewX,
+        .canvasObject.transforming.skewY {
+          border-color: #f97316;
+          box-shadow: 0 0 0 2px rgba(249, 115, 22, 0.3);
+        }
+        .resizeHandle {
+          position: absolute;
+          width: 8px;
+          height: 8px;
+          background: #fff;
+          border: 1.5px solid var(--accent);
+          border-radius: 50%;
+          z-index: 30;
+          transition: transform 0.1s;
+        }
+        .resizeHandle:hover { transform: scale(1.5); }
+        .resizeHandle.transform {
+          border-color: #f59e0b;
+          background: #fff7ed;
+        }
+        .resizeHandle.transform.rotateMode {
+          cursor: grab !important;
+          border-color: #f97316;
+        }
+        .resizeHandle.transform.skewMode {
+          cursor: ew-resize !important;
+          border-color: #0ea5e9;
+          background: #eff6ff;
+        }
+        .resizeHandle.n { top: -4px; left: calc(50% - 4px); cursor: ns-resize; }
+        .resizeHandle.s { bottom: -4px; left: calc(50% - 4px); cursor: ns-resize; }
+        .resizeHandle.e { right: -4px; top: calc(50% - 4px); cursor: ew-resize; }
+        .resizeHandle.w { left: -4px; top: calc(50% - 4px); cursor: ew-resize; }
+        .resizeHandle.ne { top: -4px; right: -4px; cursor: nesw-resize; }
+        .resizeHandle.nw { top: -4px; left: -4px; cursor: nwse-resize; }
+        .resizeHandle.se { right: -4px; bottom: -4px; cursor: nwse-resize; }
+        .resizeHandle.sw { left: -4px; bottom: -4px; cursor: nesw-resize; }
+        
+        /* App Menu */
+        .appMenu {
+          display: flex;
+          background: #ffffff;
+          border-bottom: 1px solid var(--border);
+          padding: 0 1rem;
+          margin: 0 -1.1rem 1rem -1.1rem;
+          border-radius: 14px 14px 0 0;
+        }
+        .menuField {
+          margin-bottom: 0;
+          font-size: 0.75rem;
+          color: var(--muted);
+          min-width: 180px;
+          display: flex;
+          flex-direction: column;
+          gap: 0.2rem;
+        }
+        .menuField input,
+        .menuField select {
+          margin-top: 0.2rem;
+          padding: 0.45rem 0.6rem;
+          font-size: 0.82rem;
+        }
+        .menuField.grow {
+          flex: 1;
+          min-width: 260px;
+        }
+        .modalBackdrop {
+          position: fixed;
+          inset: 0;
+          background: rgba(15, 23, 42, 0.45);
+          z-index: 1200;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 1rem;
+        }
+        .modalCard {
+          width: min(560px, 95vw);
+          background: #fff;
+          border: 1px solid var(--border);
+          border-radius: 12px;
+          box-shadow: 0 18px 40px rgba(0,0,0,0.2);
+          padding: 1rem;
+        }
+        .modalCard h3 {
+          margin: 0 0 0.8rem;
+          font-size: 1rem;
+          text-transform: none;
+          letter-spacing: normal;
+          color: var(--text);
+        }
+        .modalActions {
+          display: flex;
+          justify-content: end;
+          gap: 0.5rem;
+          margin-top: 0.5rem;
+        }
+        .typeChoiceRow {
+          display: flex;
+          gap: 0.6rem;
+          margin-bottom: 0.75rem;
+        }
+        .newDocGrid {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 0.6rem;
+        }
+        .newDocGrid .menuField {
+          min-width: 0;
+        }
+        .menuItem {
+          padding: 0.75rem 1rem;
+          font-size: 0.85rem;
+          font-weight: 500;
+          color: var(--text);
+          cursor: pointer;
+          border-bottom: 2px solid transparent;
+          transition: all 0.2s ease;
+        }
+        .menuItem:hover {
+          background: #f8fafc;
+          color: var(--accent);
+        }
+        .menuItem.active {
+          border-bottom-color: var(--accent);
+          color: var(--accent);
+          font-weight: 700;
+        }
+        .menuDropdown {
+          position: relative;
+        }
+        .menuDropdown summary {
+          list-style: none;
+        }
+        .menuDropdown summary::-webkit-details-marker {
+          display: none;
+        }
+        .menuDropdownList {
+          position: absolute;
+          top: calc(100% + 2px);
+          left: 0;
+          min-width: 210px;
+          display: flex;
+          flex-direction: column;
+          gap: 0.15rem;
+          background: #fff;
+          border: 1px solid var(--border);
+          border-radius: 8px;
+          padding: 0.3rem;
+          box-shadow: 0 10px 24px rgba(0,0,0,0.12);
+          z-index: 30;
+          text-transform: capitalize;
+        }
+        .menuDivider {
+          height: 1px;
+          background: var(--border);
+          margin: 0.4rem 0.5rem;
+          opacity: 0.6;
+        }
+        .menuDropdownItem {
+          background: transparent;
+          border: 0;
+          color: var(--text);
+          border-radius: 6px;
+          padding: 0.45rem 0.55rem;
+          font-size: 0.82rem;
+          font-weight: 600;
+          text-align: left;
+        }
+        .menuDropdownItem:hover {
+          background: #f1f5f9;
+          color: var(--accent);
+        }
+        .menuDropdownItem.active {
+          background: #e6fffb;
+          color: var(--accent);
+        }
+        .menuSubDropdown {
+          position: relative;
+        }
+        .menuSubDropdown summary {
+          list-style: none;
+        }
+        .menuSubDropdown summary::-webkit-details-marker {
+          display: none;
+        }
+        .menuSubDropdownList {
+          margin-top: 0.2rem;
+          border: 1px solid var(--border);
+          border-radius: 8px;
+          background: #f8fafc;
+          padding: 0.25rem;
+          display: flex;
+          flex-direction: column;
+          gap: 0.15rem;
+        }
+        
         .inspectorFields {
           display: grid;
           grid-template-columns: 1fr 1fr;
-          gap: 0.35rem;
+          gap: 1rem;
         }
         .inspectorFields label {
-          margin: 0;
-          font-size: 0.75rem;
+          margin-bottom: 0;
         }
-        .inspectorFields label input {
-          margin: 0.15rem 0 0;
-          padding: 0.3rem;
-          font-size: 0.74rem;
+        .inspectorFields input {
+          margin-top: 0.25rem;
         }
         .inspectorFields .full {
           grid-column: 1 / -1;
         }
+        .previewPanel {
+          border: 1px solid var(--border);
+          border-radius: 10px;
+          background: #f8fafc;
+          padding: 0.6rem;
+          margin-bottom: 1rem;
+        }
+        .previewViewport {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          min-height: 170px;
+          background: #e2e8f0;
+          border-radius: 8px;
+          padding: 0.6rem;
+          overflow: auto;
+        }
+        .previewLabel {
+          position: relative;
+          background: #fff;
+          border: 1px solid #cbd5e1;
+          box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+          overflow: hidden;
+        }
+        .previewObject {
+          position: absolute;
+          border: 1px solid #0f766e;
+          background: rgba(15, 118, 110, 0.06);
+          color: #0f172a;
+          border-radius: 2px;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+          padding: 1px 2px;
+          pointer-events: none;
+          transform-origin: center center;
+        }
+        .previewObject.line {
+          background: transparent;
+          border-top: 1px solid #0f766e;
+          border-right: 0;
+          border-left: 0;
+          border-bottom: 0;
+          padding: 0;
+          min-height: 1px;
+        }
+        .previewObject.image {
+          background: rgba(59, 130, 246, 0.08);
+          border-color: #2563eb;
+        }
+        .previewObject.barcode {
+          background: repeating-linear-gradient(
+            90deg,
+            rgba(15, 23, 42, 0.95) 0 1px,
+            rgba(255, 255, 255, 0) 1px 3px
+          );
+          color: transparent;
+        }
+
+        .iconBtn * { pointer-events: none; }
+        
+        .contextMenu {
+          position: fixed;
+          background: #fff;
+          border: 1px solid var(--border);
+          border-radius: 8px;
+          box-shadow: 0 10px 25px rgba(0,0,0,0.15);
+          padding: 0.25rem;
+          z-index: 1000;
+          min-width: 160px;
+        }
+        .contextMenu .menuItem {
+          padding: 0.6rem 0.75rem;
+          font-size: 0.85rem;
+          border-bottom: 0;
+          border-radius: 6px;
+          margin: 0;
+          display: block;
+        }
+        .contextMenu .menuItem:hover {
+          background: #f1f5f9;
+          color: var(--accent);
+        }
+        .contextMenu .menuItem.danger {
+          color: #ef4444;
+        }
+        .contextMenu .menuItem.danger:hover {
+          background: #fef2f2;
+        }
+        .contextMenu .menuLine {
+          height: 1px;
+          background: var(--border);
+          margin: 0.25rem 0.5rem;
+        }
+        
+        .contextMenu .menuItem.disabled {
+          opacity: 0.4;
+          cursor: not-allowed;
+          pointer-events: none;
+        }
+        
+        /* Layer Panel Styles */
+        .layersPanel {
+          display: flex;
+          flex-direction: column;
+          gap: 0.75rem;
+          flex: 1;
+          min-height: 0;
+        }
+        .layersList {
+          display: flex;
+          flex-direction: column;
+          gap: 0.35rem;
+          height: 100%;
+          max-height: none;
+          overflow: auto;
+          padding-right: 0.25rem;
+        }
+        .inspectorPanel {
+          display: flex;
+          flex-direction: column;
+          gap: 0.75rem;
+          flex: 1;
+        }
+        .layerGroupWrap {
+          display: flex;
+          flex-direction: column;
+          gap: 0.25rem;
+        }
+        .layerItem {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 0.5rem;
+          border: 1px solid var(--border);
+          border-radius: 8px;
+          background: #fff;
+          color: var(--text);
+          padding: 0.35rem 0.45rem;
+          font-size: 0.8rem;
+          cursor: pointer;
+          transition: all 0.15s ease;
+        }
+        .layerItem:hover {
+          border-color: #94a3b8;
+          background: #f8fafc;
+        }
+        .layerItem.selected {
+          border-color: var(--accent);
+          background: rgba(15, 118, 110, 0.08);
+          box-shadow: inset 0 0 0 1px rgba(15, 118, 110, 0.14);
+        }
+        .layerGroup {
+          font-weight: 700;
+          background: #eef2ff;
+        }
+        .layerChild {
+          margin-left: 0.9rem;
+        }
+        
+        /* Sidebar Edit Mode Styles */
+        .mini.active {
+          background: var(--accent);
+          color: #fff;
+          border-color: var(--accent);
+        }
+        
+        .paletteCard {
+          position: relative;
+          transition: transform 0.2s ease;
+        }
+        .paletteCard:hover {
+          transform: translateY(-2px);
+        }
+
         .status {
-          margin: 0.45rem 0 0;
-          font-size: 0.75rem;
-          color: #274e67;
+          margin-top: 1rem;
+          padding: 0.75rem;
+          background: #eff6ff;
+          color: #1e40af;
+          border-radius: 8px;
+          font-size: 0.8rem;
+          font-weight: 500;
         }
         .meta {
-          margin-top: 0.55rem;
+          margin-top: 2rem;
+          padding-top: 1rem;
+          border-top: 1px solid var(--border);
           display: grid;
-          gap: 0.2rem;
-          font-size: 0.74rem;
-          color: #304f62;
+          gap: 0.5rem;
+          font-size: 0.8rem;
+          color: var(--muted);
         }
-        @media (max-width: 800px) {
-          .row {
-            flex-direction: column;
-            align-items: stretch;
-          }
-          .actions, .resultActions, .viewToggle {
-            flex-wrap: wrap;
-          }
-          .history li {
-            grid-template-columns: 1fr;
-          }
-          .editorGrid {
-            grid-template-columns: 1fr;
-          }
-          .libraryPanel {
-            grid-template-columns: 1fr;
-          }
-          .studioTopbar {
-            grid-template-columns: 1fr;
-          }
+        .editorError {
+          margin: 1rem;
+          padding: 1rem;
+          background: #fef2f2;
+          color: #991b1b;
+          border: 1px solid #fca5a5;
+          border-radius: 8px;
+          font-weight: 500;
+        }
+        
+        @media (max-width: 1200px) {
           .studioBody {
-            grid-template-columns: 1fr;
+            grid-template-columns: 240px 6px minmax(0, 1fr) 6px 240px;
           }
-          .leftSidebar,
-          .rightSidebar {
-            border: 0;
-            border-top: 1px solid #d8dee4;
+        }
+        @media (max-width: 760px) {
+          .studioBody {
+            grid-template-columns: 220px 6px minmax(0, 1fr) 6px 220px;
           }
-          .varHead, .varRow {
-            grid-template-columns: 1fr;
+        }
+        @media (max-width: 640px) {
+          .row { flex-direction: column; align-items: stretch; }
+          .history li { grid-template-columns: 1fr; gap: 0.25rem; }
+          .menuField,
+          .menuField.grow {
+            min-width: 0;
+            width: 100%;
           }
         }
       `}</style>
+      {propertiesModalOpen && (
+        <div className="modalBackdrop" onClick={() => setPropertiesModalOpen(false)}>
+          <div className="modalCard" onClick={(e) => e.stopPropagation()}>
+            <h3>Propiedades del Documento</h3>
+            <div className="newDocGrid" style={{ marginTop: "1rem" }}>
+              <label className="menuField">
+                Nombre
+                <input value={docName} onChange={(e) => setDocName(e.target.value)} />
+              </label>
+              <label className="menuField">
+                Version
+                <input value={metaVersion} onChange={(e) => setMetaVersion(e.target.value)} />
+              </label>
+              <label className="menuField">
+                Brand
+                <input value={metaBrand} onChange={(e) => setMetaBrand(e.target.value)} />
+              </label>
+              <label className="menuField">
+                Part
+                <input value={metaPart} onChange={(e) => setMetaPart(e.target.value)} />
+              </label>
+              <label className="menuField">
+                Size
+                <input value={metaSize} onChange={(e) => setMetaSize(e.target.value)} />
+              </label>
+              <label className="menuField full">
+                Description
+                <textarea rows={2} value={metaDescription} onChange={(e) => setMetaDescription(e.target.value)} />
+              </label>
+            </div>
+            <div className="modalActions">
+              <button type="button" className="primary" onClick={() => setPropertiesModalOpen(false)}>Aceptar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {saveAsModalOpen && (
+        <div className="modalBackdrop" onClick={() => setSaveAsModalOpen(false)}>
+          <div className="modalCard" onClick={(e) => e.stopPropagation()}>
+            <h3>Guardar como</h3>
+            <div className="newDocGrid" style={{ marginTop: "1rem" }}>
+              <label className="menuField full">
+                Nuevo nombre
+                <input autoFocus value={saveAsName} onChange={(e) => setSaveAsName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && saveAsDoc()} />
+              </label>
+            </div>
+            <div className="modalActions">
+              <button type="button" className="secondary" onClick={() => setSaveAsModalOpen(false)}>Cancelar</button>
+              <button type="button" className="primary" onClick={saveAsDoc}>Guardar</button>
+            </div>
+          </div>
+        </div>
+      )}
     </section>
   );
 }
