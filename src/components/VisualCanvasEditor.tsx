@@ -39,6 +39,11 @@ type Obj = {
   skewY: number;
   groupId?: string;
   barcodeKind?: string;
+  fillColor?: string;
+  lineColor?: string;
+  lineWidth?: number;
+  showText?: boolean;
+  textPosition?: "top" | "bottom";
 };
 type Parsed = {
   kind: Kind;
@@ -75,46 +80,70 @@ type Guideline = { id: string; orientation: "horizontal" | "vertical"; posPt: nu
 
 const MIN = 4;
 const HANDLES = ["n", "s", "e", "w", "ne", "nw", "se", "sw"];
-const TYPES = ["text", "barcode", "box", "line", "ellipse", "image"] as const;
-const BASE_ELEMENT_KEYS = new Set(["text", "barcode", "box", "line", "ellipse", "image"]);
+const TYPES = ["text", "barcode", "box", "line", "ellipse", "image", "path"] as const;
+const BASE_ELEMENT_KEYS = new Set(["text", "barcode", "box", "line", "ellipse", "image", "path"]);
 const ICON: Record<(typeof TYPES)[number], any> = {
   text: (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
       <polyline points="4 7 4 4 20 4 20 7" />
       <line x1="9" y1="20" x2="15" y2="20" />
       <line x1="12" y1="4" x2="12" y2="20" />
     </svg>
   ),
   barcode: (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
       <path d="M3 5v14M8 5v14M12 5v14M17 5v14M21 5v14" />
     </svg>
   ),
   box: (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
       <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
     </svg>
   ),
   line: (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
       <line x1="5" y1="12" x2="19" y2="12" />
     </svg>
   ),
   ellipse: (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
       <circle cx="12" cy="12" r="10" />
     </svg>
   ),
   image: (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
       <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
       <circle cx="8.5" cy="8.5" r="1.5" />
       <polyline points="21 15 16 10 5 21" />
     </svg>
   ),
+  path: (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 2L15 8L22 9L17 14L18 21L12 18L6 21L7 14L2 9L9 8L12 2Z" />
+    </svg>
+  ),
 };
 
-const BarcodeImage = ({ value, kind, width, height, zoom, onResize }: { value: string; kind?: string; width: number; height: number; zoom: number; onResize?: (w: number, h: number) => void }) => {
+const PREDEFINED_SHAPES = [
+  { name: "Estrella", path: "M12 2L15.09 8.26L22 9.27L17 14.14L18.18 21.02L12 17.77L5.82 21.02L7 14.14L2 9.27L8.91 8.26L12 2Z" },
+  { name: "Triángulo", path: "M12 2L22 21H2L12 2Z" },
+  { name: "Flecha Der", path: "M12 2L22 12L12 22V17H2V7H12V2Z" },
+  { name: "Flecha Izq", path: "M12 2L2 12L12 22V17H22V7H12V2Z" },
+  { name: "Corazón", path: "M12 21.35L10.55 20.03C5.4 15.36 2 12.27 2 8.5C2 5.41 4.41 3 7.5 3C9.24 3 10.91 3.81 12 5.08C13.09 3.81 14.76 3 16.5 3C19.59 3 22 5.41 22 8.5C22 12.27 18.6 15.36 13.45 20.03L12 21.35Z" },
+  { name: "Hexágono", path: "M12 2L21 7V17L12 22L3 17V7L12 2Z" },
+  { name: "Rayo", path: "M13 2L3 14H12L11 22L21 10H12L13 2Z" },
+  { name: "Check", path: "M22 11.08V12a10 10 0 1 1-5.93-9.14M22 4L12 14.01l-3-3" }
+];
+
+const GROUP_ICON = (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M12 2L19 7V17L12 22L5 17V7L12 2Z" />
+    <polyline points="12 22 12 12 19 7" />
+    <line x1="12" y1="12" x2="5" y2="7" />
+  </svg>
+);
+
+const BarcodeImage = ({ value, kind, width, height, zoom, onResize, showText, textPosition }: { value: string; kind?: string; width: number; height: number; zoom: number; onResize?: (w: number, h: number) => void; showText?: boolean; textPosition?: string }) => {
   const [imgData, setImgData] = useState<string>("");
   
   useEffect(() => {
@@ -139,23 +168,32 @@ const BarcodeImage = ({ value, kind, width, height, zoom, onResize }: { value: s
           format,
           width: Math.max(1, Math.round(2 * zoom)),
           height: Math.max(10, Math.round(height * zoom)),
-          displayValue: false,
+          displayValue: showText !== false,
+          textPosition: textPosition || "bottom",
           margin: 0,
           background: "transparent",
           lineColor: "#000",
         });
         setImgData(canvas.toDataURL());
         
-        // Match the bounding box to the actual rendered barcode
         if (onResize) {
-          const actualWidthPt = canvas.width / (zoom * 2); // Approximation 
+          const actualWidthPt = canvas.width / (zoom * 2);
           onResize(actualWidthPt, height);
         }
       } catch (e) {
         console.warn("Barcode render error:", e);
+        const ctx = canvas.getContext("2d");
+        if (ctx) {
+          canvas.width = Math.max(100, width * zoom * 2);
+          canvas.height = Math.max(20, height * zoom);
+          ctx.fillStyle = "red";
+          ctx.font = `${Math.round(10 * zoom)}px sans-serif`;
+          ctx.fillText(`Error Barcode: ${value}`, 5, 15);
+          setImgData(canvas.toDataURL());
+        }
       }
     }
-  }, [value, kind, zoom, height, width]);
+  }, [value, kind, zoom, height, width, showText, textPosition]);
 
   return imgData ? <img src={imgData} alt={value} style={{ width: "100%", height: "100%", objectFit: "contain", pointerEvents: "none" }} /> : null;
 };
@@ -277,7 +315,13 @@ function parse(xml: string): Parsed {
       scaleY: n(e.getAttribute("scale_y"), 1),
       skewX: n(e.getAttribute("skew_x"), 0),
       skewY: n(e.getAttribute("skew_y"), 0),
-      barcodeKind: e.getAttribute("style") ?? undefined,
+      barcodeKind: e.getAttribute("style")?.toUpperCase() ?? undefined,
+      fillColor: e.getAttribute("fill_color") ?? e.getAttribute("color") ?? undefined,
+      lineColor: e.getAttribute("line_color") ?? undefined,
+      lineWidth: n(e.getAttribute("line_width"), 1),
+      groupId: e.getAttribute("group_id") ?? undefined,
+      showText: e.getAttribute("show_text") === "true",
+      textPosition: (e.getAttribute("text_pos") as any) || "bottom",
     }));
     return {
       kind: "sae",
@@ -299,7 +343,13 @@ function parse(xml: string): Parsed {
       scaleY: n(e.getAttribute("scale_y"), 1),
       skewX: n(e.getAttribute("skew_x"), 0),
       skewY: n(e.getAttribute("skew_y"), 0),
-      barcodeKind: e.getAttribute("style") ?? undefined,
+      barcodeKind: e.getAttribute("style")?.toUpperCase() ?? undefined,
+      fillColor: e.getAttribute("fill_color") ?? e.getAttribute("color") ?? undefined,
+      lineColor: e.getAttribute("line_color") ?? undefined,
+      lineWidth: n(e.getAttribute("line_width"), 1),
+      groupId: e.getAttribute("group_id") ?? undefined,
+      showText: e.getAttribute("text") === "true",
+      textPosition: (e.getAttribute("text_pos") as any) || "bottom",
     }));
     return {
       kind: "glabels",
@@ -358,7 +408,7 @@ export default function VisualCanvasEditor({
   const [guidelines, setGuidelines] = useState<Guideline[]>([]);
   const [activeGuidelineDrag, setActiveGuidelineDrag] = useState<{ id: string; startPosPt: number; hasExitedRuler?: boolean } | null>(null);
   const [rulerOffsets, setRulerOffsets] = useState({ x: 0, y: 0 });
-  const [activeRightTab, setActiveRightTab] = useState<"layers" | "properties" | "preview">("layers");
+  const [activeRightTab, setActiveRightTab] = useState<"layers" | "properties" | "preview">("properties");
   
   const boardRef = useRef<HTMLDivElement | null>(null);
   const studioBodyRef = useRef<HTMLDivElement | null>(null);
@@ -624,27 +674,25 @@ export default function VisualCanvasEditor({
       }
       let node = next.documentElement.getElementsByTagName("objects")[0];
       if (!node) { node = next.createElement("objects"); next.documentElement.appendChild(node); }
-      const xmlObjs = Array.from(node.getElementsByTagName("object"));
+      // Clear existing objects in the clone to handle deletions
+      while (node.firstChild) { node.removeChild(node.firstChild); }
+      
       for (const o of objects) {
-        const ex = o.xmlIndex !== null ? xmlObjs[o.xmlIndex] : undefined;
-        if (ex) {
-          ex.setAttribute("x_pt", pt(o.x)); ex.setAttribute("y_pt", pt(o.y)); ex.setAttribute("w_pt", pt(o.w)); ex.setAttribute("h_pt", pt(o.h));
-          ex.setAttribute("rot_deg", pt(o.rotateDeg));
-          ex.setAttribute("scale_x", pt(o.scaleX)); ex.setAttribute("scale_y", pt(o.scaleY)); ex.setAttribute("skew_x", pt(o.skewX)); ex.setAttribute("skew_y", pt(o.skewY));
-          if (o.type === "barcode" && o.barcodeKind) ex.setAttribute("style", o.barcodeKind.toLowerCase());
-          const c = ex.getElementsByTagName("content")[0] ?? next.createElement("content");
-          c.textContent = o.content;
-          if (!c.parentElement) ex.appendChild(c);
-        } else {
-          const e = next.createElement("object");
-          e.setAttribute("type", o.type); e.setAttribute("x_pt", pt(o.x)); e.setAttribute("y_pt", pt(o.y)); e.setAttribute("w_pt", pt(o.w)); e.setAttribute("h_pt", pt(o.h));
-          e.setAttribute("style", o.type === "barcode" ? (o.barcodeKind?.toLowerCase() || "code128") : "");
-          e.setAttribute("color", "0xff"); e.setAttribute("dx_pt", "0"); e.setAttribute("dy_pt", "0"); e.setAttribute("show_text", "false"); e.setAttribute("checksum", "false");
-          e.setAttribute("rot_deg", pt(o.rotateDeg));
-          e.setAttribute("scale_x", pt(o.scaleX)); e.setAttribute("scale_y", pt(o.scaleY)); e.setAttribute("skew_x", pt(o.skewX)); e.setAttribute("skew_y", pt(o.skewY));
-          const c = next.createElement("content"); c.textContent = o.content; e.appendChild(c);
-          node.appendChild(e);
-        }
+        const e = next.createElement("object");
+        e.setAttribute("type", o.type); e.setAttribute("x_pt", pt(o.x)); e.setAttribute("y_pt", pt(o.y)); e.setAttribute("w_pt", pt(o.w)); e.setAttribute("h_pt", pt(o.h));
+        e.setAttribute("style", o.type === "barcode" ? (o.barcodeKind?.toLowerCase() || "code128") : "");
+        e.setAttribute("color", "0xff"); e.setAttribute("dx_pt", "0"); e.setAttribute("dy_pt", "0"); 
+        e.setAttribute("show_text", o.showText ? "true" : "false");
+        e.setAttribute("text_pos", o.textPosition || "bottom");
+        e.setAttribute("checksum", "false");
+        e.setAttribute("rot_deg", pt(o.rotateDeg));
+        e.setAttribute("scale_x", pt(o.scaleX)); e.setAttribute("scale_y", pt(o.scaleY)); e.setAttribute("skew_x", pt(o.skewX)); e.setAttribute("skew_y", pt(o.skewY));
+        if (o.fillColor) e.setAttribute("color", o.fillColor);
+        if (o.lineColor) e.setAttribute("line_color", o.lineColor);
+        if (o.lineWidth) e.setAttribute("line_width", pt(o.lineWidth));
+        if (o.groupId) e.setAttribute("group_id", o.groupId);
+        const c = next.createElement("content"); c.textContent = o.content; e.appendChild(c);
+        node.appendChild(e);
       }
     } else {
       next.documentElement.setAttribute("version", metadata.version || "4.0");
@@ -662,32 +710,35 @@ export default function VisualCanvasEditor({
       }
       let node = next.documentElement.getElementsByTagName("Objects")[0];
       if (!node) { node = next.createElement("Objects"); next.documentElement.appendChild(node); }
-      const xmlObjs = Array.from(node.children).filter((x) => x.nodeName.startsWith("Object-"));
+      // Clear existing objects in the clone to handle deletions
+      while (node.firstChild) { node.removeChild(node.firstChild); }
+
       for (const o of objects) {
-        const ex = o.xmlIndex !== null ? (xmlObjs[o.xmlIndex] as Element | undefined) : undefined;
-        if (ex) {
-          ex.setAttribute("x", `${pt(o.x)}pt`); ex.setAttribute("y", `${pt(o.y)}pt`); ex.setAttribute("w", `${pt(o.w)}pt`); ex.setAttribute("h", `${pt(o.h)}pt`);
-          ex.setAttribute("rot_deg", pt(o.rotateDeg));
-          ex.setAttribute("scale_x", pt(o.scaleX)); ex.setAttribute("scale_y", pt(o.scaleY)); ex.setAttribute("skew_x", pt(o.skewX)); ex.setAttribute("skew_y", pt(o.skewY));
-          if (o.type === "barcode" && o.barcodeKind) ex.setAttribute("style", o.barcodeKind.toLowerCase());
-          const m = toAffine(o);
-          ex.setAttribute("a0", pt(m.a)); ex.setAttribute("a1", pt(m.b)); ex.setAttribute("a2", pt(m.c)); ex.setAttribute("a3", pt(m.d)); ex.setAttribute("a4", "0"); ex.setAttribute("a5", "0");
-        } else {
-          const tag = o.type === "text" ? "Object-text" : o.type === "barcode" ? "Object-barcode" : o.type === "box" ? "Object-box" : o.type === "line" ? "Object-line" : o.type === "ellipse" ? "Object-ellipse" : "Object-image";
-          const e = next.createElement(tag);
-          e.setAttribute("x", `${pt(o.x)}pt`); e.setAttribute("y", `${pt(o.y)}pt`); e.setAttribute("w", `${pt(o.w)}pt`); e.setAttribute("h", `${pt(o.h)}pt`);
-          const m = toAffine(o);
-          e.setAttribute("a0", pt(m.a)); e.setAttribute("a1", pt(m.b)); e.setAttribute("a2", pt(m.c)); e.setAttribute("a3", pt(m.d)); e.setAttribute("a4", "0"); e.setAttribute("a5", "0");
-          e.setAttribute("lock_aspect_ratio", o.type === "image" ? "true" : "false"); e.setAttribute("shadow", "false");
-          e.setAttribute("rot_deg", pt(o.rotateDeg));
-          e.setAttribute("scale_x", pt(o.scaleX)); e.setAttribute("scale_y", pt(o.scaleY)); e.setAttribute("skew_x", pt(o.skewX)); e.setAttribute("skew_y", pt(o.skewY));
-          if (o.type === "text") { e.setAttribute("color", "0xff"); e.setAttribute("font_family", "Sans"); e.setAttribute("font_size", "10"); e.setAttribute("align", "left"); e.setAttribute("valign", "top"); const p = next.createElement("p"); p.textContent = o.content || "${texto}"; e.appendChild(p); }
-          if (o.type === "barcode") { e.setAttribute("style", o.barcodeKind?.toLowerCase() || "code128"); e.setAttribute("data", o.content || "${barcode}"); e.setAttribute("text", "true"); e.setAttribute("checksum", "false"); }
-          if (o.type === "box" || o.type === "ellipse") { e.setAttribute("fill_color", "0xffffff"); e.setAttribute("line_color", "0xff"); e.setAttribute("line_width", "1pt"); }
-          if (o.type === "line") { e.setAttribute("dx", `${pt(o.w)}pt`); e.setAttribute("dy", "0pt"); e.setAttribute("line_color", "0xff"); e.setAttribute("line_width", "1pt"); }
-          if (o.type === "image") e.setAttribute("src", o.content ?? "");
-          node.appendChild(e);
+        const tag = o.type === "text" ? "Object-text" : o.type === "barcode" ? "Object-barcode" : o.type === "box" ? "Object-box" : o.type === "line" ? "Object-line" : o.type === "ellipse" ? "Object-ellipse" : o.type === "path" ? "Object-path" : "Object-image";
+        const e = next.createElement(tag);
+        e.setAttribute("x", `${pt(o.x)}pt`); e.setAttribute("y", `${pt(o.y)}pt`); e.setAttribute("w", `${pt(o.w)}pt`); e.setAttribute("h", `${pt(o.h)}pt`);
+        const m = toAffine(o);
+        e.setAttribute("a0", pt(m.a)); e.setAttribute("a1", pt(m.b)); e.setAttribute("a2", pt(m.c)); e.setAttribute("a3", pt(m.d)); e.setAttribute("a4", "0"); e.setAttribute("a5", "0");
+        e.setAttribute("lock_aspect_ratio", o.type === "image" ? "true" : "false"); e.setAttribute("shadow", "false");
+        e.setAttribute("rot_deg", pt(o.rotateDeg));
+        e.setAttribute("scale_x", pt(o.scaleX)); e.setAttribute("scale_y", pt(o.scaleY)); e.setAttribute("skew_x", pt(o.skewX)); e.setAttribute("skew_y", pt(o.skewY));
+        if (o.fillColor) e.setAttribute("fill_color", o.fillColor);
+        if (o.lineColor) e.setAttribute("line_color", o.lineColor);
+        if (o.lineWidth) e.setAttribute("line_width", pt(o.lineWidth));
+        if (o.groupId) e.setAttribute("group_id", o.groupId);
+        if (o.type === "text") { e.setAttribute("color", "0xff"); e.setAttribute("font_family", "Sans"); e.setAttribute("font_size", "10"); e.setAttribute("align", "left"); e.setAttribute("valign", "top"); const p = next.createElement("p"); p.textContent = o.content || "${texto}"; e.appendChild(p); }
+        if (o.type === "barcode") { 
+          e.setAttribute("style", o.barcodeKind?.toLowerCase() || "code128"); 
+          e.setAttribute("data", o.content || "${barcode}"); 
+          e.setAttribute("text", o.showText ? "true" : "false"); 
+          e.setAttribute("text_pos", o.textPosition || "bottom");
+          e.setAttribute("checksum", "false"); 
         }
+        if (o.type === "box" || o.type === "ellipse") { e.setAttribute("fill_color", "0xffffff"); e.setAttribute("line_color", "0xff"); e.setAttribute("line_width", "1pt"); }
+        if (o.type === "line") { e.setAttribute("dx", `${pt(o.w)}pt`); e.setAttribute("dy", "0pt"); e.setAttribute("line_color", "0xff"); e.setAttribute("line_width", "1pt"); }
+        if (o.type === "image") e.setAttribute("src", o.content ?? "");
+        if (o.type === "path") e.setAttribute("data", o.content ?? "");
+        node.appendChild(e);
       }
     }
     const nextXml = new XMLSerializer().serializeToString(next);
@@ -765,7 +816,16 @@ export default function VisualCanvasEditor({
 
   const handleContextMenu = (e: React.MouseEvent, id: string | null) => {
     e.preventDefault();
-    if (id && !selectedIds.includes(id)) setSelectedIds([id]);
+    if (id) {
+      if (id.startsWith("group:")) {
+        const gid = id.slice(6);
+        if (!objects.some(o => selectedIds.includes(o.id) && o.groupId === gid)) {
+          setSelectedIds(objects.filter(o => o.groupId === gid).map(o => o.id));
+        }
+      } else if (!selectedIds.includes(id)) {
+        setSelectedIds([id]);
+      }
+    }
     setContextMenu({ x: e.clientX, y: e.clientY, id });
   };
 
@@ -915,6 +975,35 @@ export default function VisualCanvasEditor({
                 </div>
               ))}
             </div>
+
+            <div className="sidebarSection" style={{ marginTop: '1.5rem' }}>
+              <h4>Formas</h4>
+              <div className="paletteGrid">
+                {PREDEFINED_SHAPES.map((s) => (
+                  <div key={s.name} className="paletteCard">
+                    <button 
+                      type="button" 
+                      className="iconBtn" 
+                      draggable 
+                      onDragStart={(e) => { 
+                        const el = { key: "path", name: s.name, category: "shapes", objectType: "path", defaultWidthPt: 40, defaultHeightPt: 40, defaultContent: s.path };
+                        draggedElementRef.current = el as any; 
+                        e.dataTransfer.setData("application/saelabel-element", JSON.stringify(el)); 
+                      }} 
+                      onDragEnd={resetDragState}
+                    >
+                      <span className="ico">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                          <path d={s.path} />
+                        </svg>
+                      </span>
+                      <small>{s.name}</small>
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+
             {sidebarEditMode && (
               <div className="elementForm">
                 <h4>{editingElementId ? "Editar" : "Nuevo"}</h4>
@@ -945,7 +1034,7 @@ export default function VisualCanvasEditor({
               <div ref={boardRef} className={`canvasBoard ${isBoardDragOver ? "dragOver" : ""} ${activeTransformKind ? `transform-${activeTransformKind}` : ""}`} style={{ width: templateWidthPt * zoom, height: templateHeightPt * zoom }} onMouseDown={(e) => { if (e.target === e.currentTarget) { setContextMenu(null); setBoxSelect({ startClientX: e.clientX, startClientY: e.clientY, currentClientX: e.clientX, currentClientY: e.clientY }); } }} onDragOver={(e) => { e.preventDefault(); setIsBoardDragOver(true); }} onDragLeave={() => setIsBoardDragOver(false)} onDrop={(e) => { e.preventDefault(); setIsBoardDragOver(false); const raw = e.dataTransfer.getData("application/saelabel-element"); const el = raw ? JSON.parse(raw) : draggedElementRef.current; if (!el || !boardRef.current) return; const br = boardRef.current.getBoundingClientRect(); const x = (e.clientX - br.left) / zoom; const y = (e.clientY - br.top) / zoom; setObjects(p => [...p, { id: `new-${crypto.randomUUID()}`, xmlIndex: null, type: el.objectType, x, y, w: el.defaultWidthPt, h: el.defaultHeightPt, content: el.defaultContent || "", rotateDeg: 0, scaleX: 1, scaleY: 1, skewX: 0, skewY: 0 }]); }}>
                 {objects.map((o) => (
                   <button key={o.id} type="button" className={`canvasObject ${o.type} ${selectedIds.includes(o.id) ? "selected" : ""}`} style={{ left: o.x * zoom, top: o.y * zoom, width: o.w * zoom, height: o.h * zoom, transform: `rotate(${o.rotateDeg}deg) skew(${o.skewX}deg, ${o.skewY}deg) scale(${o.scaleX}, ${o.scaleY})` }} onMouseDown={(e) => { e.stopPropagation(); const ids = objects.find(x => x.id === o.id)?.groupId ? objects.filter(x => x.groupId === objects.find(x => x.id === o.id)?.groupId).map(x => x.id) : selectedIds.includes(o.id) ? selectedIds : [o.id]; setDrag({ mode: "move", id: o.id, startX: e.clientX, startY: e.clientY, x: o.x, y: o.y, w: o.w, h: o.h, originMap: ids.reduce((a, id) => { const f = objects.find(x => x.id === id); if (f) a[id] = { x: f.x, y: f.y }; return a; }, {} as any) }); }} onContextMenu={(e) => handleContextMenu(e, o.id)} onClick={(e) => { e.stopPropagation(); if (e.ctrlKey) setSelectedIds(p => p.includes(o.id) ? p.filter(id => id !== o.id) : [...p, o.id]); else setSelectedIds([o.id]); }} onDoubleClick={() => setTransformModeIds(p => p.includes(o.id) ? p.filter(x => x !== o.id) : [...p, o.id])}>
-                    <span>{o.type}</span>
+                    {(o.type !== "box" && o.type !== "ellipse") && <span>{o.type}</span>}
                     {o.type === "image" ? (
                       o.content ? <img src={o.content} alt="" style={{ width: "100%", height: "100%", objectFit: "contain", pointerEvents: "none" }} /> : <div className="imgPlaceholder">Imagen</div>
                     ) : o.type === "barcode" ? (
@@ -956,18 +1045,29 @@ export default function VisualCanvasEditor({
                           width={o.w} 
                           height={o.h} 
                           zoom={zoom} 
+                          showText={o.showText}
+                          textPosition={o.textPosition}
                           onResize={(w, h) => {
                             if (Math.abs(o.w - w) > 0.5 || Math.abs(o.h - h) > 0.5) {
                               setObjects(p => p.map(x => x.id === o.id ? { ...x, w, h } : x));
                             }
                           }}
                         />
-                        <span className="kindBadge" style={{ position: "absolute", bottom: "-12px", fontSize: "8px", background: "transparent", padding: "1px 4px", borderRadius: "4px", color: "rgba(0,0,0,0.5)" }}>{o.barcodeKind || "CODE128"}</span>
                       </div>
                     ) : o.type === "line" ? (
-                      <div className="lineViz" style={{ width: "100%", height: "100%", background: "currentColor" }} />
+                      <div className="lineViz" style={{ width: "100%", height: "100%", background: o.lineColor || "currentColor" }} />
+                    ) : o.type === "path" ? (
+                      <svg viewBox="0 0 24 24" preserveAspectRatio="none" style={{ width: "100%", height: "100%" }}>
+                        <path 
+                          d={o.content} 
+                          fill={o.fillColor || "transparent"} 
+                          stroke={o.lineColor || "black"} 
+                          strokeWidth={o.lineWidth ? o.lineWidth * (24 / Math.max(o.w, o.h)) : 0} 
+                          vectorEffect="non-scaling-stroke"
+                        />
+                      </svg>
                     ) : (
-                      <small>{o.content}</small>
+                      <div style={{ width: "100%", height: "100%", background: o.fillColor || "transparent", border: o.lineWidth ? `${o.lineWidth * zoom}px solid ${o.lineColor || "black"}` : "none", borderRadius: o.type === "ellipse" ? "50%" : "0", boxSizing: "border-box" }} />
                     )}
                     {selectedIds.includes(o.id) && HANDLES.map(h => (
                       <span key={h} className={`resizeHandle ${h} ${transformModeIds.includes(o.id) ? "transform" : ""} ${h.length === 2 ? "rotateMode" : "skewMode"}`} onMouseDown={(e) => { e.stopPropagation(); const br = boardRef.current?.getBoundingClientRect(); const cx = (br?.left ?? 0) + (o.x + o.w / 2) * zoom; const cy = (br?.top ?? 0) + (o.y + o.h / 2) * zoom; setDrag({ mode: transformModeIds.includes(o.id) ? "transform" : "resize", id: o.id, handle: h, startX: e.clientX, startY: e.clientY, x: o.x, y: o.y, w: o.w, h: o.h, startRotateDeg: o.rotateDeg, startSkewX: o.skewX, startSkewY: o.skewY, centerClientX: cx, centerClientY: cy, startAngleRad: Math.atan2(e.clientY - cy, e.clientX - cx) }); }} />
@@ -981,48 +1081,142 @@ export default function VisualCanvasEditor({
         <div className="sidebarResizer right" onMouseDown={(e) => { resizingSidebarRef.current = { side: "right", startX: e.clientX, startWidth: rightSidebarWidth, otherWidth: leftSidebarWidth, bodyWidth: studioBodyRef.current?.getBoundingClientRect().width ?? 0 }; }} />
         <aside className="rightSidebar">
           <div className="sidebarTabs">
-            <button type="button" className={`sidebarTab ${activeRightTab === "layers" ? "active" : ""}`} onClick={() => setActiveRightTab("layers")}>Capas</button>
             <button type="button" className={`sidebarTab ${activeRightTab === "properties" ? "active" : ""}`} onClick={() => setActiveRightTab("properties")}>Propiedades</button>
+            <button type="button" className={`sidebarTab ${activeRightTab === "layers" ? "active" : ""}`} onClick={() => setActiveRightTab("layers")}>Capas</button>
             <button type="button" className={`sidebarTab ${activeRightTab === "preview" ? "active" : ""}`} onClick={() => setActiveRightTab("preview")}>Vista Previa</button>
           </div>
           <div className="sidebarScroll">
             {activeRightTab === "layers" && (
               <div className="layersPanel">
-                {layerNodes.map(node => node.kind === "group" ? (
-                  <div key={node.groupId} className="layerGroupWrap">
-                    <div className="layerItem layerGroup" draggable onDragStart={() => setDragLayerId(`group:${node.groupId}`)} onDrop={(e) => { e.preventDefault(); if (dragLayerId) reorderByLayerDrop(dragLayerId, `group:${node.groupId}`); setDragLayerId(null); }} onClick={() => setSelectedIds(node.members.map(m => m.id))}><span>Grupo ({node.members.length})</span></div>
-                    {node.members.map(m => <div key={m.id} className="layerItem layerChild" onClick={() => setSelectedIds([m.id])}><span>{m.type}</span></div>)}
-                  </div>
-                ) : (
-                  <div key={node.object.id} className="layerItem" draggable onDragStart={() => setDragLayerId(node.object.id)} onDrop={(e) => { e.preventDefault(); if (dragLayerId) reorderByLayerDrop(dragLayerId, node.object.id); setDragLayerId(null); }} onClick={() => setSelectedIds([node.object.id])}><span>{node.object.type}</span></div>
-                ))}
+                <div className="layersList">
+                  {layerNodes.map(node => node.kind === "group" ? (
+                    <div key={node.groupId} className="layerGroupWrap">
+                      <div className="layerItem layerGroup" draggable onDragStart={() => setDragLayerId(`group:${node.groupId}`)} onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); if (dragLayerId) reorderByLayerDrop(dragLayerId, `group:${node.groupId}`); setDragLayerId(null); }} onClick={() => setSelectedIds(node.members.map(m => m.id))} onContextMenu={(e) => handleContextMenu(e, `group:${node.groupId}`)}>
+                        <span className="layerIcon">{GROUP_ICON}</span>
+                        <span>Grupo ({node.members.length})</span>
+                      </div>
+                      {node.members.map(m => (
+                        <div key={m.id} className={`layerItem layerChild ${selectedIds.includes(m.id) ? "selected" : ""}`} onClick={() => setSelectedIds([m.id])} onContextMenu={(e) => handleContextMenu(e, m.id)} onDragOver={(e) => e.preventDefault()}>
+                          <span className="layerIcon">{ICON[m.type as keyof typeof ICON]}</span>
+                          <span>{m.type}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div key={node.object.id} className={`layerItem ${selectedIds.includes(node.object.id) ? "selected" : ""}`} draggable onDragStart={() => setDragLayerId(node.object.id)} onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); if (dragLayerId) reorderByLayerDrop(dragLayerId, node.object.id); setDragLayerId(null); }} onClick={() => setSelectedIds([node.object.id])} onContextMenu={(e) => handleContextMenu(e, node.object.id)}>
+                      <span className="layerIcon">{ICON[node.object.type as keyof typeof ICON]}</span>
+                      <span>{node.object.type}</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="layersToolbar">
+                  <button type="button" className="toolBtn" title="Traer al frente" onClick={() => selectedIds[0] && bringToFront(selectedIds[0])}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="M21 3l-7 7"/><path d="M3 21l7-7"/></svg>
+                  </button>
+                  <button type="button" className="toolBtn" title="Enviar al fondo" onClick={() => selectedIds[0] && sendToBack(selectedIds[0])}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 15L3 21"/><path d="M21 3l-6 6"/><path d="M15 3h6v6"/><path d="M9 21H3v-6"/></svg>
+                  </button>
+                  <div className="toolDivider" />
+                  <button type="button" className="toolBtn" title="Subir capa" onClick={() => selectedIds[0] && moveLayer(selectedIds[0], "up")}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="18 15 12 9 6 15"/></svg>
+                  </button>
+                  <button type="button" className="toolBtn" title="Bajar capa" onClick={() => selectedIds[0] && moveLayer(selectedIds[0], "down")}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                  </button>
+                  <div className="toolDivider" />
+                  <button type="button" className="toolBtn" title="Agrupar" onClick={groupSelected} disabled={selectedIds.length < 2}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 9h6v6H9z"/></svg>
+                  </button>
+                  <button type="button" className="toolBtn danger" title="Eliminar" onClick={() => deleteObjects(selectedIds)} disabled={selectedIds.length === 0}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+                  </button>
+                </div>
               </div>
             )}
             {activeRightTab === "properties" && sel && (
               <div className="inspectorPanel">
-                <div className="inspectorFields">
-                  <label>X<input type="number" value={sel.x} onChange={e => setObjects(p => p.map(x => x.id === sel.id ? { ...x, x: Number(e.target.value) } : x))} /></label>
-                  <label>Y<input type="number" value={sel.y} onChange={e => setObjects(p => p.map(x => x.id === sel.id ? { ...x, y: Number(e.target.value) } : x))} /></label>
-                  <label>Ancho<input type="number" value={sel.w} onChange={e => setObjects(p => p.map(x => x.id === sel.id ? { ...x, w: Number(e.target.value) } : x))} /></label>
-                  <label>Alto<input type="number" value={sel.h} onChange={e => setObjects(p => p.map(x => x.id === sel.id ? { ...x, h: Number(e.target.value) } : x))} /></label>
-                  <label>Rotación (°)<input type="number" value={sel.rotateDeg} onChange={e => setObjects(p => p.map(x => x.id === sel.id ? { ...x, rotateDeg: Number(e.target.value) } : x))} /></label>
-                  <label>Escala X<input type="number" step="0.1" value={sel.scaleX} onChange={e => setObjects(p => p.map(x => x.id === sel.id ? { ...x, scaleX: Number(e.target.value) } : x))} /></label>
-                  <label>Escala Y<input type="number" step="0.1" value={sel.scaleY} onChange={e => setObjects(p => p.map(x => x.id === sel.id ? { ...x, scaleY: Number(e.target.value) } : x))} /></label>
-                  <label>Sesgado X (°)<input type="number" value={sel.skewX} onChange={e => setObjects(p => p.map(x => x.id === sel.id ? { ...x, skewX: Number(e.target.value) } : x))} /></label>
-                  <label>Sesgado Y (°)<input type="number" value={sel.skewY} onChange={e => setObjects(p => p.map(x => x.id === sel.id ? { ...x, skewY: Number(e.target.value) } : x))} /></label>
-                  {sel.type === "barcode" && (
-                    <label className="full">Tipo Barcode
-                      <select value={sel.barcodeKind || "CODE128"} onChange={e => setObjects(p => p.map(x => x.id === sel.id ? { ...x, barcodeKind: e.target.value } : x))}>
-                        {["CODE128", "EAN13", "QR", "UPC", "CODE39"].map(k => <option key={k} value={k}>{k}</option>)}
-                      </select>
-                    </label>
-                  )}
-                  {sel.type === "image" && (
-                    <div className="full imgUploadRow">
-                      <button type="button" className="mini" onClick={() => { const input = document.createElement("input"); input.type = "file"; input.accept = "image/*"; input.onchange = (e) => { const file = (e.target as HTMLInputElement).files?.[0]; if (file) { const reader = new FileReader(); reader.onload = (loadEv) => { setObjects(p => p.map(x => x.id === sel.id ? { ...x, content: loadEv.target?.result as string } : x)); }; reader.readAsDataURL(file); } }; input.click(); }}>Cargar Imagen</button>
+                <div className="inspectorScroll">
+                  <div className="inspectorSection">
+                    <header className="sectionHeader">
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>
+                      <span>Geometría</span>
+                    </header>
+                    <div className="inspectorFields grid2">
+                      <label>X<input type="number" value={sel.x} onChange={e => setObjects(p => p.map(x => x.id === sel.id ? { ...x, x: Number(e.target.value) } : x))} /></label>
+                      <label>Y<input type="number" value={sel.y} onChange={e => setObjects(p => p.map(x => x.id === sel.id ? { ...x, y: Number(e.target.value) } : x))} /></label>
+                      <label>Ancho<input type="number" value={sel.w} onChange={e => setObjects(p => p.map(x => x.id === sel.id ? { ...x, w: Number(e.target.value) } : x))} /></label>
+                      <label>Alto<input type="number" value={sel.h} onChange={e => setObjects(p => p.map(x => x.id === sel.id ? { ...x, h: Number(e.target.value) } : x))} /></label>
                     </div>
-                  )}
-                  <label className="full">Contenido<input value={sel.content} onChange={e => setObjects(p => p.map(x => x.id === sel.id ? { ...x, content: e.target.value } : x))} /></label>
+                    <div className="inspectorFields grid3">
+                      <label>Rotación<input type="number" value={sel.rotateDeg} onChange={e => setObjects(p => p.map(x => x.id === sel.id ? { ...x, rotateDeg: Number(e.target.value) } : x))} /></label>
+                      <label>Escala X<input type="number" step="0.1" value={sel.scaleX} onChange={e => setObjects(p => p.map(x => x.id === sel.id ? { ...x, scaleX: Number(e.target.value) } : x))} /></label>
+                      <label>Escala Y<input type="number" step="0.1" value={sel.scaleY} onChange={e => setObjects(p => p.map(x => x.id === sel.id ? { ...x, scaleY: Number(e.target.value) } : x))} /></label>
+                    </div>
+                  </div>
+
+                  <div className="inspectorSection">
+                    <header className="sectionHeader">
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+                      <span>Apariencia</span>
+                    </header>
+                    <div className="inspectorFields grid2">
+                      {(sel.type === "box" || sel.type === "ellipse" || sel.type === "line" || sel.type === "path") && (
+                        <>
+                          <label className="full">Color Relleno
+                            <div className="colorInput">
+                              <input type="color" value={sel.fillColor || "#ffffff"} onChange={e => setObjects(p => p.map(x => x.id === sel.id ? { ...x, fillColor: e.target.value } : x))} />
+                              <span>{sel.fillColor || "#ffffff"}</span>
+                            </div>
+                          </label>
+                          <label className="full">Color Borde
+                            <div className="colorInput">
+                              <input type="color" value={sel.lineColor || "#000000"} onChange={e => setObjects(p => p.map(x => x.id === sel.id ? { ...x, lineColor: e.target.value } : x))} />
+                              <span>{sel.lineColor || "#000000"}</span>
+                            </div>
+                          </label>
+                          <label className="full">Ancho Borde<input type="number" value={sel.lineWidth || 1} onChange={e => setObjects(p => p.map(x => x.id === sel.id ? { ...x, lineWidth: Number(e.target.value) } : x))} /></label>
+                        </>
+                      )}
+                      {sel.type === "barcode" && (
+                        <label className="full">Tipo Barcode
+                          <select value={sel.barcodeKind || "CODE128"} onChange={e => setObjects(p => p.map(x => x.id === sel.id ? { ...x, barcodeKind: e.target.value } : x))}>
+                            {["CODE128", "EAN13", "QR", "UPC", "CODE39", "ITF"].map(k => <option key={k} value={k}>{k}</option>)}
+                          </select>
+                        </label>
+                      )}
+                      {sel.type === "barcode" && sel.barcodeKind !== "QR" && (
+                        <>
+                          <label className="full checkboxLabel">
+                            <input type="checkbox" checked={!!sel.showText} onChange={e => setObjects(p => p.map(x => x.id === sel.id ? { ...x, showText: e.target.checked } : x))} />
+                            Mostrar texto
+                          </label>
+                          <label className="full">Posición texto
+                            <select value={sel.textPosition || "bottom"} onChange={e => setObjects(p => p.map(x => x.id === sel.id ? { ...x, textPosition: e.target.value as any } : x))}>
+                              <option value="bottom">Abajo</option>
+                              <option value="top">Arriba</option>
+                            </select>
+                          </label>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="inspectorSection">
+                    <header className="sectionHeader">
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+                      <span>Contenido</span>
+                    </header>
+                    <div className="inspectorFields">
+                      {sel.type === "image" && (
+                        <div className="full imgUploadRow">
+                          <button type="button" className="mini" onClick={() => { const input = document.createElement("input"); input.type = "file"; input.accept = "image/*"; input.onchange = (e) => { const file = (e.target as HTMLInputElement).files?.[0]; if (file) { const reader = new FileReader(); reader.onload = (loadEv) => { setObjects(p => p.map(x => x.id === sel.id ? { ...x, content: loadEv.target?.result as string } : x)); }; reader.readAsDataURL(file); } }; input.click(); }}>Cargar Imagen</button>
+                        </div>
+                      )}
+                      <label className="full">Contenido
+                        <textarea rows={3} value={sel.content} onChange={e => setObjects(p => p.map(x => x.id === sel.id ? { ...x, content: e.target.value } : x))} />
+                      </label>
+                    </div>
+                  </div>
                 </div>
               </div>
             )}
@@ -1032,9 +1226,10 @@ export default function VisualCanvasEditor({
                   <div className="previewLabel" style={{ width: templateWidthPt * previewScale, height: templateHeightPt * previewScale }}>
                     {objects.map(o => (
                       <div key={o.id} className={`previewObject ${o.type}`} style={{ left: o.x * previewScale, top: o.y * previewScale, width: o.w * previewScale, height: o.h * previewScale, transform: `rotate(${o.rotateDeg}deg) scale(${o.scaleX}, ${o.scaleY})` }}>
-                        {o.type === "barcode" && <BarcodeImage value={o.content || "123456"} kind={o.barcodeKind} width={o.w} height={o.h} zoom={previewScale} />}
+                        {o.type === "barcode" && <BarcodeImage value={o.content || "123456"} kind={o.barcodeKind} width={o.w} height={o.h} zoom={previewScale} showText={o.showText} textPosition={o.textPosition} />}
                         {o.type === "image" && o.content && <img src={o.content} alt="" style={{ width: "100%", height: "100%", objectFit: "contain" }} />}
-                        {o.type === "line" && <div className="lineViz" style={{ width: "100%", height: "100%", background: "currentColor" }} />}
+                        {o.type === "line" && <div className="lineViz" style={{ width: "100%", height: "100%", background: o.lineColor || "currentColor" }} />}
+                        {(o.type === "box" || o.type === "ellipse") && <div style={{ width: "100%", height: "100%", background: o.fillColor || "transparent", border: o.lineWidth ? `${o.lineWidth * previewScale}px solid ${o.lineColor || "black"}` : "none", borderRadius: o.type === "ellipse" ? "50%" : "0" }} />}
                       </div>
                     ))}
                   </div>

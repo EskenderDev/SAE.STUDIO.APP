@@ -1727,6 +1727,7 @@ export default function LabelWorkbench() {
           background: #fff;
           position: relative;
           z-index: 55;
+          user-select: none;
         }
         .ruler.horizontal {
           grid-area: 1 / 2;
@@ -1870,15 +1871,15 @@ export default function LabelWorkbench() {
           backdrop-filter: blur(4px);
           color: var(--text);
           border-radius: 0;
-          padding: 0.5rem;
+          padding: 0;
           font-size: 0.75rem;
           cursor: move;
           display: flex;
           flex-direction: column;
-          gap: 0.25rem;
           user-select: none;
           transition: none !important;
           box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+          box-sizing: border-box;
         }
         .canvasObject:hover {
           background: rgba(255, 255, 255, 0.95);
@@ -1886,15 +1887,21 @@ export default function LabelWorkbench() {
           box-shadow: 0 6px 16px rgba(0,0,0,0.1);
           z-index: 15;
         }
-        .canvasObject.ellipse {
-          border-radius: 50%;
-        }
+        .canvasObject.box,
+        .canvasObject.ellipse,
         .canvasObject.line, 
+        .canvasObject.path,
         .canvasObject.barcode { 
           padding: 0; 
           background: transparent;
           border-color: transparent;
           box-shadow: none;
+          backdrop-filter: none;
+        }
+        .canvasObject.path svg {
+          width: 100%;
+          height: 100%;
+          display: block;
         }
         .canvasObject.line:hover,
         .canvasObject.barcode:hover {
@@ -1909,7 +1916,19 @@ export default function LabelWorkbench() {
           height: 100%;
           background: #000;
         }
-        .canvasObject span { font-weight: 700; text-transform: uppercase; font-size: 0.65rem; color: var(--accent); }
+        .canvasObject > span:not(.resizeHandle) { 
+          position: absolute;
+          top: -16px;
+          left: 0;
+          font-weight: 700; 
+          text-transform: uppercase; 
+          font-size: 0.65rem; 
+          color: #fff; 
+          mix-blend-mode: difference;
+          white-space: nowrap;
+          pointer-events: none;
+          z-index: 30;
+        }
         .canvasObject.selected {
           border-color: #f59e0b;
           background: rgba(245, 158, 11, 0.1);
@@ -1962,13 +1981,12 @@ export default function LabelWorkbench() {
           align-items: center;
           background: #ffffff;
           border-bottom: 1px solid var(--border);
-          padding: 8px 0.5rem 0;
+          padding: 12px 0.5rem 8px;
           flex: 0 0 auto;
           z-index: 100;
           width: 100%;
           margin-bottom: 0;
           user-select: none;
-          height: 48px;
         }
         .windowControls {
           display: flex;
@@ -2270,59 +2288,209 @@ export default function LabelWorkbench() {
         .layersPanel {
           display: flex;
           flex-direction: column;
-          gap: 0.75rem;
-          flex: 1;
+          height: 100%;
           min-height: 0;
         }
         .layersList {
-          display: flex;
-          flex-direction: column;
-          gap: 0.35rem;
-          height: 100%;
-          max-height: none;
-          overflow: auto;
-          padding-right: 0.25rem;
-        }
-        .inspectorPanel {
-          display: flex;
-          flex-direction: column;
-          gap: 0.75rem;
           flex: 1;
+          overflow: auto;
+          display: flex;
+          flex-direction: column;
+          gap: 0.25rem;
+          padding: 0.5rem;
         }
         .layerGroupWrap {
           display: flex;
           flex-direction: column;
-          gap: 0.25rem;
         }
         .layerItem {
           display: flex;
           align-items: center;
-          justify-content: space-between;
           gap: 0.5rem;
-          border: 1px solid var(--border);
-          border-radius: 8px;
+          padding: 0.5rem 0.75rem;
           background: #fff;
-          color: var(--text);
-          padding: 0.35rem 0.45rem;
-          font-size: 0.8rem;
+          border-bottom: 1px solid #e2e8f0;
+          font-size: 0.82rem;
+          font-weight: 500;
           cursor: pointer;
-          transition: all 0.15s ease;
+          transition: background 0.15s;
         }
         .layerItem:hover {
-          border-color: #94a3b8;
           background: #f8fafc;
         }
         .layerItem.selected {
-          border-color: var(--accent);
-          background: rgba(15, 118, 110, 0.08);
-          box-shadow: inset 0 0 0 1px rgba(15, 118, 110, 0.14);
+          background: #f0fdfa;
+          border-left: 3px solid var(--accent);
+          padding-left: calc(0.75rem - 3px);
+          color: var(--accent);
         }
-        .layerGroup {
+        .layerItem.layerGroup {
+          background: #f1f5f9;
           font-weight: 700;
-          background: #eef2ff;
         }
-        .layerChild {
-          margin-left: 0.9rem;
+        .layerItem.layerChild {
+          padding-left: 2.25rem;
+          font-size: 0.78rem;
+          background: #fff;
+        }
+        .layerItem.layerChild.selected {
+          padding-left: calc(2.25rem - 3px);
+        }
+        .layerIcon {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          color: #64748b;
+          opacity: 0.8;
+        }
+        .selected .layerIcon {
+          color: var(--accent);
+          opacity: 1;
+        }
+        .layersToolbar {
+          display: flex;
+          align-items: center;
+          gap: 0.15rem;
+          padding: 0.3rem 0.4rem;
+          background: #fff;
+          border-top: 1px solid var(--border);
+          border-radius: 0 0 8px 8px;
+        }
+        .toolBtn {
+          flex: 1;
+          height: 28px;
+          min-width: 0;
+          padding: 0;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          background: #fff;
+          border: 1px solid #e2e8f0;
+          border-radius: 4px;
+          color: #64748b;
+          cursor: pointer;
+          transition: all 0.2s;
+        }
+        .toolBtn svg {
+          stroke: currentColor;
+        }
+        .toolBtn:hover:not(:disabled) {
+          background: #f1f5f9;
+          border-color: #cbd5e1;
+          color: var(--accent);
+        }
+        .toolBtn.danger {
+          color: #e74c3c;
+        }
+        .toolBtn.danger:hover:not(:disabled) {
+          background: #fef2f2;
+          border-color: #fca5a5;
+          color: #ef4444;
+        }
+          opacity: 0.3;
+          cursor: not-allowed;
+        }
+        .toolBtn.danger:hover:not(:disabled) {
+          background: #fef2f2;
+          border-color: #fecaca;
+          color: #ef4444;
+        }
+        .toolDivider {
+          width: 1px;
+          height: 16px;
+          background: #e2e8f0;
+          margin: 0 0.2rem;
+        }
+
+        /* Inspector Panel Styles */
+        .inspectorPanel {
+          display: flex;
+          flex-direction: column;
+          height: 100%;
+          min-height: 0;
+        }
+        .inspectorScroll {
+          flex: 1;
+          overflow: auto;
+          display: flex;
+          flex-direction: column;
+          gap: 1.5rem;
+          padding: 1rem;
+        }
+        .inspectorSection {
+          display: flex;
+          flex-direction: column;
+          gap: 0.75rem;
+        }
+        .sectionHeader {
+          display: flex;
+          align-items: center;
+          gap: 0.5rem;
+          font-size: 0.72rem;
+          font-weight: 800;
+          color: #64748b;
+          text-transform: uppercase;
+          letter-spacing: 0.05em;
+          border-bottom: 1px solid #f1f5f9;
+          padding-bottom: 0.4rem;
+        }
+        .inspectorFields.grid2 {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 0.75rem 1rem;
+        }
+        .inspectorFields.grid3 {
+          display: grid;
+          grid-template-columns: 1fr 1fr 1fr;
+          gap: 0.75rem;
+        }
+        .inspectorFields label {
+          display: flex;
+          flex-direction: column;
+          gap: 0.25rem;
+          font-size: 0.75rem;
+          font-weight: 600;
+          color: #475569;
+        }
+        .inspectorFields label.full {
+          grid-column: 1 / -1;
+        }
+        .inspectorFields input, 
+        .inspectorFields select,
+        .inspectorFields textarea {
+          width: 100%;
+          padding: 0.4rem 0.5rem;
+          border: 1px solid #e2e8f0;
+          border-radius: 6px;
+          font-size: 0.8rem;
+          background: #fff;
+          transition: border-color 0.2s;
+        }
+        .inspectorFields input:focus {
+          border-color: var(--accent);
+          outline: none;
+        }
+        .colorInput {
+          display: flex;
+          align-items: center;
+          gap: 0.5rem;
+          padding: 0.2rem;
+          border: 1px solid #e2e8f0;
+          border-radius: 6px;
+          background: #fff;
+        }
+        .colorInput input[type="color"] {
+          width: 24px;
+          height: 24px;
+          padding: 0;
+          border: 0;
+          border-radius: 4px;
+          cursor: pointer;
+        }
+        .colorInput span {
+          font-family: monospace;
+          font-size: 0.75rem;
+          color: #64748b;
         }
         
         /* Sidebar Edit Mode Styles */
@@ -2393,6 +2561,7 @@ export default function LabelWorkbench() {
           color: #64748b;
           font-size: 9px;
           border-color: #cbd5e1;
+          user-select: none;
         }
         .ruler.horizontal { border-bottom: 1px solid #cbd5e1; }
         .ruler.vertical { border-right: 1px solid #cbd5e1; }
