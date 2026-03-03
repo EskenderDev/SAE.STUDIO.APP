@@ -180,6 +180,7 @@ export default function LabelWorkbench() {
   const [propertiesModalOpen, setPropertiesModalOpen] = useState(false);
   const [saveAsModalOpen, setSaveAsModalOpen] = useState(false);
   const [saveAsName, setSaveAsName] = useState("");
+  const [fileHandle, setFileHandle] = useState<FileSystemFileHandle | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -265,30 +266,54 @@ export default function LabelWorkbench() {
   }, [editorApi]);
 
   const saveDoc = async () => {
-    if (!docName.trim()) {
-      setError("Nombre del documento es requerido.");
+    if (!fileHandle) {
+      await saveAsDoc();
       return;
     }
+
     try {
-      const payload: UpsertEditorDocumentPayload = {
-        id: docId || undefined,
-        name: docName.trim(),
-        kind: newDocumentDraft.kind,
-        xml,
-      };
-      const res = await editorApi.saveDocument(payload);
-      setDocId(res.id);
-      setDocName(res.name);
-      setError("");
-      void refreshDocuments();
+      const writable = await (fileHandle as any).createWritable();
+      await writable.write(xml);
+      await writable.close();
+      
+      if (docId) {
+        await editorApi.saveDocument({ id: docId, name: docName, kind: newDocumentDraft.kind, xml });
+      }
+      setResult("Guardado exitosamente.");
+      setShowResultModal(true);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "No se pudo guardar.");
+      console.error("Failed to save:", e);
+      setError("Error al guardar archivo.");
     }
   };
 
   const saveAsDoc = async () => {
+    // Priority: Local Save via Picker
+    if (typeof window !== "undefined" && "showSaveFilePicker" in window) {
+      try {
+        const handle = await (window as any).showSaveFilePicker({
+          suggestedName: docName || "etiqueta.xml",
+          types: [{
+            description: 'XML Files',
+            accept: { 'application/xml': ['.xml'] },
+          }],
+        });
+        setFileHandle(handle);
+        const writable = await handle.createWritable();
+        await writable.write(xml);
+        await writable.close();
+        setResult("Guardado como nuevo archivo local.");
+        setShowResultModal(true);
+        return;
+      } catch (e: any) {
+        if (e.name === "AbortError") return;
+        console.error("File Picker failed:", e);
+      }
+    }
+
+    // Fallback: Virtual Save As in Backend
     if (!saveAsName.trim()) {
-      setError("El nombre es obligatorio para 'Guardar como'.");
+      setSaveAsModalOpen(true);
       return;
     }
     try {
@@ -304,6 +329,8 @@ export default function LabelWorkbench() {
       setSaveAsName("");
       setError("");
       void refreshDocuments();
+      setResult("Copia guardada exitosamente en el servidor.");
+      setShowResultModal(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : "No se pudo guardar como.");
     }
@@ -322,8 +349,72 @@ export default function LabelWorkbench() {
     }
   };
 
-  const exportDoc = () => {
-    alert("Funcion 'Exportar' estara disponible pronto.");
+  const exportDoc = async () => {
+    setLoading(true);
+    try {
+      let xmlToExport = xml;
+      // If we are in SAE and want to export, we might want to offer conversion
+      // For now, let's just make sure it descends or stays in kind.
+      // But user asked for SAE/GLabels transformations.
+      
+      const targetKind = newDocumentDraft.kind === "sae" ? "glabels" : "sae";
+      const confirmConversion = window.confirm(`Deseas convertir el documento a ${targetKind} antes de exportar?`);
+      
+      if (confirmConversion) {
+        if (newDocumentDraft.kind === "sae") {
+          const res = await labelsApi.convertToGlabels({ xml }) as any;
+          xmlToExport = res.data || res;
+        } else {
+          const res = await labelsApi.convertFromGlabels({ xml }) as any;
+          xmlToExport = res.data || res;
+        }
+      }
+
+      const blob = new Blob([xmlToExport], { type: "application/xml" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `export_${docName || "documento"}.xml`;
+      a.click();
+      URL.revokeObjectURL(url);
+      setResult("Documento exportado exitosamente.");
+      setShowResultModal(true);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Error al exportar.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const exportToSaeSystem = async () => {
+    setLoading(true);
+    try {
+      // Ensure we export in SAE format
+      let saeXml = xml;
+      if (newDocumentDraft.kind === "glabels") {
+        const res = await labelsApi.convertFromGlabels({ xml }) as any;
+        saeXml = res.data || res;
+      }
+
+      const response = await fetch(`${apiBaseUrl.replace(/\/+$/, "")}/api/editor/export/saesystem`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ xml: saeXml, fileName: docName }),
+      });
+
+      if (!response.ok) {
+        const txt = await response.text();
+        throw new Error(txt || `Error ${response.status}`);
+      }
+
+      const data = await response.json();
+      setResult(`Exportado a SAE System con éxito!\nUbicación: ${data.path}`);
+      setShowResultModal(true);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Error al exportar a SAE System.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   const applyExample = () => {
@@ -605,6 +696,9 @@ export default function LabelWorkbench() {
             </button>
             <button type="button" className="menuDropdownItem" onClick={() => { exportDoc(); closeAllMenus(); }}>
               Exportar
+            </button>
+            <button type="button" className="menuDropdownItem" onClick={() => { exportToSaeSystem(); closeAllMenus(); }}>
+              Exportar a SAE System
             </button>
             <div className="menuDivider" />
             <details className="menuSubDropdown">
@@ -1015,13 +1109,41 @@ export default function LabelWorkbench() {
         .studioTopbar {
           background: #ffffff;
           border-bottom: 1px solid var(--border);
-          padding: 0.75rem 1rem;
+          padding: 0.6rem 1rem;
           display: flex;
-          justify-content: space-between;
+          justify-content: flex-start;
           align-items: center;
           flex-wrap: wrap;
-          gap: 1rem;
+          gap: 1.5rem;
           flex: 0 0 auto;
+        }
+        .zoomControlContainer, .sizeControlsContainer {
+          display: flex;
+          align-items: center;
+          gap: 0.75rem;
+        }
+        .controlIcon {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          color: var(--accent);
+          opacity: 0.8;
+        }
+        .unitSelect {
+          padding: 0.35rem 0.5rem;
+          font-size: 0.8rem;
+          font-weight: 600;
+          border: 1px solid var(--border);
+          border-radius: 6px;
+          background: #f8fafc;
+          color: var(--text);
+          cursor: pointer;
+          outline: none;
+          transition: all 0.2s;
+        }
+        .unitSelect:hover {
+          border-color: var(--accent);
+          background: #fff;
         }
         .toolbarGroup {
           display: flex;
@@ -1182,7 +1304,7 @@ export default function LabelWorkbench() {
           border-top: 1px solid var(--border);
           background: #f8fafc;
           display: flex;
-          justify-content: flex-end;
+          justify-content: flex-start;
           gap: 0.75rem;
         }
         .modalFooter button {
@@ -1705,11 +1827,12 @@ export default function LabelWorkbench() {
         /* App Menu */
         .appMenu {
           display: flex;
+          align-items: center;
           background: #ffffff;
           border-bottom: 1px solid var(--border);
           padding: 0 1rem;
-          margin: 0 -1.1rem 1rem -1.1rem;
-          border-radius: 14px 14px 0 0;
+          flex: 0 0 auto;
+          z-index: 100;
         }
         .menuField {
           margin-bottom: 0;
@@ -1757,7 +1880,7 @@ export default function LabelWorkbench() {
         }
         .modalActions {
           display: flex;
-          justify-content: end;
+          justify-content: start;
           gap: 0.5rem;
           margin-top: 0.5rem;
         }

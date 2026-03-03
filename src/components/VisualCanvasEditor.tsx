@@ -682,27 +682,35 @@ export default function VisualCanvasEditor({
       <header className="studioTopbar">
         <div className="toolbarGroup">
           <div className="toolbarDivider" />
-          <label className="zoomLabel">Zoom
-            <input type="range" min={25} max={500} step={5} value={zoomPercent} onChange={(e) => setZoomPercent(Number(e.target.value))} />
-          </label>
-          <span className="zoomBadge">{zoomPercent}%</span>
-          <label className="zoomLabel sizeLabel">
-            <span className="sizeAxis">W</span>
-            <span className="unitInput">
-              <input type="number" title={`Ancho (${templateUnit})`} value={Number(toUnit(templateWidthPt, templateUnit).toFixed(3))} step={unitStep(templateUnit)} onChange={(e) => setTemplateWidthPt(Math.max(1, fromUnit(Number(e.target.value), templateUnit)))} />
-              <small>{templateUnit}</small>
+          <div className="zoomControlContainer">
+            <span className="controlIcon">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="8" y1="11" x2="14" y2="11"/><line x1="11" y1="8" x2="11" y2="14"/></svg>
             </span>
-          </label>
-          <label className="zoomLabel sizeLabel">
-            <span className="sizeAxis">H</span>
-            <span className="unitInput">
-              <input type="number" title={`Alto (${templateUnit})`} value={Number(toUnit(templateHeightPt, templateUnit).toFixed(3))} step={unitStep(templateUnit)} onChange={(e) => setTemplateHeightPt(Math.max(1, fromUnit(Number(e.target.value), templateUnit)))} />
-              <small>{templateUnit}</small>
-            </span>
-          </label>
-          <select value={templateUnit} onChange={(e) => setTemplateUnit(e.target.value as Unit)} style={{ width: "5.5rem", marginTop: 0 }}>
-            {["mm", "cm", "in", "pt"].map(u => <option key={u} value={u}>{u}</option>)}
-          </select>
+            <label className="zoomLabel">Zoom
+              <input type="range" min={25} max={500} step={5} value={zoomPercent} onChange={(e) => setZoomPercent(Number(e.target.value))} />
+            </label>
+            <span className="zoomBadge">{zoomPercent}%</span>
+          </div>
+          <div className="toolbarDivider" />
+          <div className="sizeControlsContainer">
+            <label className="zoomLabel sizeLabel">
+              <span className="sizeAxis">W</span>
+              <span className="unitInput">
+                <input type="number" title={`Ancho (${templateUnit})`} value={Number(toUnit(templateWidthPt, templateUnit).toFixed(3))} step={unitStep(templateUnit)} onChange={(e) => setTemplateWidthPt(Math.max(1, fromUnit(Number(e.target.value), templateUnit)))} />
+                <small>{templateUnit}</small>
+              </span>
+            </label>
+            <label className="zoomLabel sizeLabel">
+              <span className="sizeAxis">H</span>
+              <span className="unitInput">
+                <input type="number" title={`Alto (${templateUnit})`} value={Number(toUnit(templateHeightPt, templateUnit).toFixed(3))} step={unitStep(templateUnit)} onChange={(e) => setTemplateHeightPt(Math.max(1, fromUnit(Number(e.target.value), templateUnit)))} />
+                <small>{templateUnit}</small>
+              </span>
+            </label>
+            <select className="unitSelect" value={templateUnit} onChange={(e) => setTemplateUnit(e.target.value as Unit)}>
+              {["mm", "cm", "in", "pt"].map(u => <option key={u} value={u}>{u}</option>)}
+            </select>
+          </div>
         </div>
       </header>
 
@@ -732,6 +740,9 @@ export default function VisualCanvasEditor({
                 <button type="button" className="mini" onClick={saveElement}>Guardar</button>
               </div>
             )}
+            <div className="editHint">
+              <strong>Tip:</strong> Arrastra los elementos al lienzo para agregarlos. Doble clic en un elemento para activar rotacion y sesgado.
+            </div>
           </div>
         </aside>
         <div className="sidebarResizer left" onMouseDown={(e) => { resizingSidebarRef.current = { side: "left", startX: e.clientX, startWidth: leftSidebarWidth, otherWidth: rightSidebarWidth, bodyWidth: studioBodyRef.current?.getBoundingClientRect().width ?? 0 }; }} />
@@ -745,7 +756,7 @@ export default function VisualCanvasEditor({
                 <button key={o.id} type="button" className={`canvasObject ${selectedIds.includes(o.id) ? "selected" : ""}`} style={{ left: o.x * zoom, top: o.y * zoom, width: o.w * zoom, height: o.h * zoom, transform: `rotate(${o.rotateDeg}deg) skew(${o.skewX}deg, ${o.skewY}deg) scale(${o.scaleX}, ${o.scaleY})` }} onMouseDown={(e) => { e.stopPropagation(); const ids = objects.find(x => x.id === o.id)?.groupId ? objects.filter(x => x.groupId === objects.find(x => x.id === o.id)?.groupId).map(x => x.id) : selectedIds.includes(o.id) ? selectedIds : [o.id]; setDrag({ mode: "move", id: o.id, startX: e.clientX, startY: e.clientY, x: o.x, y: o.y, w: o.w, h: o.h, originMap: ids.reduce((a, id) => { const f = objects.find(x => x.id === id); if (f) a[id] = { x: f.x, y: f.y }; return a; }, {} as any) }); }} onContextMenu={(e) => handleContextMenu(e, o.id)} onClick={(e) => { e.stopPropagation(); if (e.ctrlKey) setSelectedIds(p => p.includes(o.id) ? p.filter(id => id !== o.id) : [...p, o.id]); else setSelectedIds([o.id]); }} onDoubleClick={() => setTransformModeIds(p => p.includes(o.id) ? p.filter(x => x !== o.id) : [...p, o.id])}>
                   <span>{o.type}</span><small>{o.content}</small>
                   {selectedIds.includes(o.id) && HANDLES.map(h => (
-                    <span key={h} className={`resizeHandle ${h} ${transformModeIds.includes(o.id) ? "transform" : ""}`} onMouseDown={(e) => { e.stopPropagation(); const br = boardRef.current?.getBoundingClientRect(); const cx = (br?.left ?? 0) + (o.x + o.w / 2) * zoom; const cy = (br?.top ?? 0) + (o.y + o.h / 2) * zoom; setDrag({ mode: transformModeIds.includes(o.id) ? "transform" : "resize", id: o.id, handle: h, startX: e.clientX, startY: e.clientY, x: o.x, y: o.y, w: o.w, h: o.h, startRotateDeg: o.rotateDeg, startSkewX: o.skewX, startSkewY: o.skewY, centerClientX: cx, centerClientY: cy, startAngleRad: Math.atan2(e.clientY - cy, e.clientX - cx) }); }} />
+                    <span key={h} className={`resizeHandle ${h} ${transformModeIds.includes(o.id) ? "transform" : ""} ${h.length === 2 ? "rotateMode" : "skewMode"}`} onMouseDown={(e) => { e.stopPropagation(); const br = boardRef.current?.getBoundingClientRect(); const cx = (br?.left ?? 0) + (o.x + o.w / 2) * zoom; const cy = (br?.top ?? 0) + (o.y + o.h / 2) * zoom; setDrag({ mode: transformModeIds.includes(o.id) ? "transform" : "resize", id: o.id, handle: h, startX: e.clientX, startY: e.clientY, x: o.x, y: o.y, w: o.w, h: o.h, startRotateDeg: o.rotateDeg, startSkewX: o.skewX, startSkewY: o.skewY, centerClientX: cx, centerClientY: cy, startAngleRad: Math.atan2(e.clientY - cy, e.clientX - cx) }); }} />
                   ))}
                 </button>
               ))}
@@ -773,12 +784,19 @@ export default function VisualCanvasEditor({
               </div>
             )}
             {activeRightTab === "properties" && sel && (
-              <div className="inspectorFields">
-                <label>X<input type="number" value={sel.x} onChange={e => setObjects(p => p.map(x => x.id === sel.id ? { ...x, x: Number(e.target.value) } : x))} /></label>
-                <label>Y<input type="number" value={sel.y} onChange={e => setObjects(p => p.map(x => x.id === sel.id ? { ...x, y: Number(e.target.value) } : x))} /></label>
-                <label>W<input type="number" value={sel.w} onChange={e => setObjects(p => p.map(x => x.id === sel.id ? { ...x, w: Number(e.target.value) } : x))} /></label>
-                <label>H<input type="number" value={sel.h} onChange={e => setObjects(p => p.map(x => x.id === sel.id ? { ...x, h: Number(e.target.value) } : x))} /></label>
-                <label className="full">Contenido<input value={sel.content} onChange={e => setObjects(p => p.map(x => x.id === sel.id ? { ...x, content: e.target.value } : x))} /></label>
+              <div className="inspectorPanel">
+                <div className="inspectorFields">
+                  <label>X<input type="number" value={sel.x} onChange={e => setObjects(p => p.map(x => x.id === sel.id ? { ...x, x: Number(e.target.value) } : x))} /></label>
+                  <label>Y<input type="number" value={sel.y} onChange={e => setObjects(p => p.map(x => x.id === sel.id ? { ...x, y: Number(e.target.value) } : x))} /></label>
+                  <label>Ancho<input type="number" value={sel.w} onChange={e => setObjects(p => p.map(x => x.id === sel.id ? { ...x, w: Number(e.target.value) } : x))} /></label>
+                  <label>Alto<input type="number" value={sel.h} onChange={e => setObjects(p => p.map(x => x.id === sel.id ? { ...x, h: Number(e.target.value) } : x))} /></label>
+                  <label>Rotación (°)<input type="number" value={sel.rotateDeg} onChange={e => setObjects(p => p.map(x => x.id === sel.id ? { ...x, rotateDeg: Number(e.target.value) } : x))} /></label>
+                  <label>Escala X<input type="number" step="0.1" value={sel.scaleX} onChange={e => setObjects(p => p.map(x => x.id === sel.id ? { ...x, scaleX: Number(e.target.value) } : x))} /></label>
+                  <label>Escala Y<input type="number" step="0.1" value={sel.scaleY} onChange={e => setObjects(p => p.map(x => x.id === sel.id ? { ...x, scaleY: Number(e.target.value) } : x))} /></label>
+                  <label>Sesgado X (°)<input type="number" value={sel.skewX} onChange={e => setObjects(p => p.map(x => x.id === sel.id ? { ...x, skewX: Number(e.target.value) } : x))} /></label>
+                  <label>Sesgado Y (°)<input type="number" value={sel.skewY} onChange={e => setObjects(p => p.map(x => x.id === sel.id ? { ...x, skewY: Number(e.target.value) } : x))} /></label>
+                  <label className="full">Contenido<input value={sel.content} onChange={e => setObjects(p => p.map(x => x.id === sel.id ? { ...x, content: e.target.value } : x))} /></label>
+                </div>
               </div>
             )}
             {activeRightTab === "preview" && (
