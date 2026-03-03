@@ -9,7 +9,7 @@
     "preview": "astro preview",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
-    "gen:api": "openapi-ts --input https://localhost:7097/openapi/v1.json --output src/lib/api/generated"
+    "gen:api": "node scripts/gen-api.mjs"
   },
   "dependencies": {
     "@astrojs/react": "^4.4.0",

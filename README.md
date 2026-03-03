@@ -35,3 +35,10 @@ Genera cliente tipado desde el backend:
 ```bash
 npm run gen:api
 ```
+
+Detalles:
+- Intenta descargar el spec desde `https://localhost:7097/openapi/v1.json`.
+- Si falla (backend apagado/certificado local), usa `openapi/saelabel.openapi.json` en cache.
+- Variables opcionales:
+  - `SAELABEL_OPENAPI_URL` para cambiar la URL del spec.
+  - `SAELABEL_OPENAPI_TIMEOUT_MS` para timeout de descarga.

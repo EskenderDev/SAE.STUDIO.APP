@@ -1,0 +1,86 @@
+{
+  "openapi": "3.0.1",
+  "info": { "title": "SAELABEL API", "version": "v1" },
+  "paths": {
+    "/api/labels/parse": {
+      "post": {
+        "operationId": "labels_parse",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/XmlRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "ok",
+            "content": {
+              "application/json": {
+                "schema": { "type": "object", "additionalProperties": true }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/labels/convert-to-glabels": {
+      "post": {
+        "operationId": "labels_convert_to_glabels",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/XmlRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "ok",
+            "content": {
+              "text/plain": {
+                "schema": { "type": "string" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/labels/convert-from-glabels": {
+      "post": {
+        "operationId": "labels_convert_from_glabels",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/XmlRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "ok",
+            "content": {
+              "text/plain": {
+                "schema": { "type": "string" }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "XmlRequest": {
+        "type": "object",
+        "required": ["xml"],
+        "properties": {
+          "xml": { "type": "string" }
+        }
+      }
+    }
+  }
+}

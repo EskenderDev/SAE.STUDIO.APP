@@ -6,7 +6,7 @@
     <title>SAELABEL App</title>
     <style>
       :root {
-        --bg: #f7f8fa;
+        --bg: #f2f6f9;
         --panel: #ffffff;
         --text: #101820;
         --muted: #4d5a66;
@@ -16,22 +16,26 @@
 
       body {
         margin: 0;
-        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
-        background: radial-gradient(circle at top right, #e5f5f2 0%, var(--bg) 45%);
+        font-family: "Segoe UI Variable", "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+        background:
+          radial-gradient(circle at 15% 0%, #dff5f0 0%, transparent 30%),
+          radial-gradient(circle at 100% 10%, #e8eef8 0%, transparent 26%),
+          var(--bg);
         color: var(--text);
       }
 
       main {
-        max-width: 920px;
+        max-width: 100vw;
         margin: 0 auto;
-        padding: 2rem 1rem 3rem;
+        padding: 0.75rem;
       }
 
       .panel {
         background: var(--panel);
         border: 1px solid var(--border);
-        border-radius: 12px;
-        padding: 1rem;
+        border-radius: 14px;
+        padding: 1.1rem;
+        box-shadow: 0 14px 34px rgba(11, 31, 43, 0.08);
       }
     </style>
   </head>
