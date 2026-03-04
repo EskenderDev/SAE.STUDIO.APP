@@ -3,10 +3,11 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { createLabelsApi, DEFAULT_API_BASE_URL, createEditorApi } from "@/lib/api/client";
 import type { EditorDocumentSummary, UpsertEditorDocumentPayload } from "@/lib/api/client";
 import VisualCanvasEditor from "@/components/VisualCanvasEditor";
+import TicketDesigner from "@/components/TicketDesigner";
 import LogicalPrintersManagerModal from "@/components/LogicalPrintersManagerModal";
 
 type Action = "parse" | "convert-to-glabels" | "convert-from-glabels";
-type DocKind = "sae" | "glabels";
+type DocKind = "sae" | "glabels" | "saetickets";
 type Unit = "mm" | "cm" | "in" | "pt";
 
 const sampleSaeXml =
@@ -157,6 +158,10 @@ export default function LabelWorkbench() {
   const [showPrintersManagerModal, setShowPrintersManagerModal] = useState(false);
   const [apiBaseUrlDraft, setApiBaseUrlDraft] = useState("");
   const [showResultModal, setShowResultModal] = useState(false);
+  const [showAboutModal, setShowAboutModal] = useState(false);
+  const [showTemplatesGallery, setShowTemplatesGallery] = useState(false);
+  const [showOpenDocModal, setShowOpenDocModal] = useState(false);
+  const [openDocSearch, setOpenDocSearch] = useState("");
   const [showNewTypeModal, setShowNewTypeModal] = useState(false);
   const [showNewConfigModal, setShowNewConfigModal] = useState(false);
   const [selectedPresetId, setSelectedPresetId] = useState("custom");
@@ -171,6 +176,8 @@ export default function LabelWorkbench() {
     part: "P-1",
     size: "custom",
   });
+  const [docKind, setDocKind] = useState<"sae" | "glabels" | "saetickets">("sae");
+
   const [docId, setDocId] = useState("");
   const [docName, setDocName] = useState("Sin titulo");
   const [documents, setDocuments] = useState<EditorDocumentSummary[]>([]);
@@ -219,6 +226,8 @@ export default function LabelWorkbench() {
   useEffect(() => {
     if (typeof window === "undefined") return;
     window.localStorage.setItem(STORAGE.apiBaseUrl, apiBaseUrl);
+    // Sync the global API client in client.ts
+    import("@/lib/api/client").then(m => m.setApiBaseUrl(apiBaseUrl));
   }, [apiBaseUrl]);
 
   useEffect(() => {
@@ -245,6 +254,18 @@ export default function LabelWorkbench() {
     if (typeof window === "undefined") return;
     window.localStorage.setItem(STORAGE.sessions, JSON.stringify(sessions));
   }, [sessions]);
+
+  // Global Shortcut: Ctrl+S to save
+  useEffect(() => {
+    const handleSave = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === "s") {
+        e.preventDefault();
+        saveDoc();
+      }
+    };
+    window.addEventListener("keydown", handleSave);
+    return () => window.removeEventListener("keydown", handleSave);
+  }, [xml, docId, docName, docKind, metaVersion, metaBrand, metaDescription, metaPart, metaSize]);
 
   const buttonLabel = useMemo(() => {
     if (action === "parse") return "Probar parse";
@@ -280,13 +301,28 @@ export default function LabelWorkbench() {
       await writable.close();
       
       if (docId) {
-        await editorApi.saveDocument({ id: docId, name: docName, kind: newDocumentDraft.kind, xml });
+        await editorApi.saveDocument({ id: docId, name: docName, kind: docKind, xml });
       }
       setResult("Guardado exitosamente.");
       setShowResultModal(true);
     } catch (e) {
       console.error("Failed to save:", e);
       setError("Error al guardar archivo.");
+    }
+  };
+
+  const deleteDocument = async (id: string) => {
+    if (!window.confirm("¿Estás seguro de que deseas eliminar este documento?")) return;
+    try {
+      await editorApi.deleteDocument(id);
+      if (docId === id) {
+        setDocId("");
+        setDocName("Sin título");
+        setXml(sampleSaeXml);
+      }
+      void refreshDocuments();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Error al eliminar.");
     }
   };
 
@@ -322,7 +358,7 @@ export default function LabelWorkbench() {
     try {
       const payload: UpsertEditorDocumentPayload = {
         name: saveAsName.trim(),
-        kind: newDocumentDraft.kind,
+        kind: docKind,
         xml,
       };
       const res = await editorApi.saveDocument(payload);
@@ -345,7 +381,9 @@ export default function LabelWorkbench() {
       setDocId(full.id);
       setDocName(full.name);
       setXml(full.xml);
-      setNewDocumentDraft(p => ({ ...p, kind: full.kind as DocKind }));
+      const kind = full.kind as DocKind;
+      setNewDocumentDraft(p => ({ ...p, kind: kind === 'saetickets' ? 'sae' : kind }));
+      setDocKind(kind);
       setError("");
     } catch (e) {
       setError(e instanceof Error ? e.message : "No se pudo cargar.");
@@ -613,7 +651,20 @@ export default function LabelWorkbench() {
     if (!file) return;
     try {
       const text = await file.text();
-      setXml(sanitizeXmlInput(text));
+      const sanitized = sanitizeXmlInput(text);
+      setXml(sanitized);
+      setDocName(file.name.replace(/\.(xml|saelabels|saetikets)$/i, ""));
+      setDocId(""); // New from file
+      
+      // Infer kind
+      if (sanitized.includes("<saetickets")) {
+        setDocKind("saetickets");
+      } else if (sanitized.includes("<saelabels")) {
+        setDocKind("sae");
+      } else if (sanitized.includes("<Glabels-document")) {
+        setDocKind("glabels");
+      }
+
       setError("");
       setResult("");
     } catch {
@@ -679,6 +730,16 @@ export default function LabelWorkbench() {
     return () => window.removeEventListener("click", handleOutsideClick);
   }, []);
 
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (!(e.target as HTMLElement).closest(".appMenu details")) {
+        closeAllMenus();
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
   const closeAllMenus = () => {
     if (typeof document === "undefined") return;
     document.querySelectorAll(".appMenu details[open]").forEach((el) => {
@@ -696,8 +757,14 @@ export default function LabelWorkbench() {
               <button type="button" className="menuDropdownItem" onClick={() => { openNewDocumentTypeModal(); closeAllMenus(); }}>
                 Nuevo...
               </button>
+              <button type="button" className="menuDropdownItem" onClick={() => { setShowOpenDocModal(true); closeAllMenus(); }}>
+                Abrir...
+              </button>
+              <button type="button" className="menuDropdownItem" onClick={() => { setShowTemplatesGallery(true); closeAllMenus(); }}>
+                Plantillas
+              </button>
               <button type="button" className="menuDropdownItem" onClick={() => { setPropertiesModalOpen(true); closeAllMenus(); }}>
-                Propiedades
+                Propiedades Documento
               </button>
               <div className="menuDivider" />
               <button type="button" className="menuDropdownItem" onClick={() => { saveDoc(); closeAllMenus(); }}>
@@ -709,21 +776,60 @@ export default function LabelWorkbench() {
               <button type="button" className="menuDropdownItem" onClick={() => { exportDoc(); closeAllMenus(); }}>
                 Exportar
               </button>
-              <button type="button" className="menuDropdownItem" onClick={() => { exportToSaeSystem(); closeAllMenus(); }}>
-                Exportar a SAE System
+              <button type="button" className="menuDropdownItem danger" style={{ color: '#ef4444' }} onClick={() => { if (docId) deleteDocument(docId); closeAllMenus(); }} disabled={!docId}>
+                Eliminar documento
               </button>
               <div className="menuDivider" />
               <details className="menuSubDropdown">
                 <summary className="menuDropdownItem">Etiquetas recientes</summary>
                 <div className="menuSubDropdownList">
-                  {documents.length > 0 ? documents.slice(0, 10).map(d => (
+                  {documents.filter(d => d.kind !== 'saetickets').length > 0 ? documents.filter(d => d.kind !== 'saetickets').slice(0, 10).map(d => (
                     <button key={d.id} type="button" className="menuDropdownItem" onClick={() => { loadDocument(d.id); closeAllMenus(); }}>
                       {d.name}
                     </button>
                   )) : <div className="menuDropdownItem disabled">No hay etiquetas</div>}
                 </div>
               </details>
+              <details className="menuSubDropdown">
+                <summary className="menuDropdownItem">Tiquetes recientes</summary>
+                <div className="menuSubDropdownList">
+                  {documents.filter(d => d.kind === 'saetickets').length > 0 ? documents.filter(d => d.kind === 'saetickets').slice(0, 10).map(d => (
+                    <button key={d.id} type="button" className="menuDropdownItem" onClick={() => { loadDocument(d.id); closeAllMenus(); }}>
+                      {d.name}
+                    </button>
+                  )) : <div className="menuDropdownItem disabled">No hay tiquetes</div>}
+                </div>
+              </details>
+            </div>
+          </details>
+          <details className="menuDropdown">
+            <summary className="menuItem" style={{ textAlign: 'left' }}>Editar</summary>
+            <div className="menuDropdownList">
+              <button type="button" className="menuDropdownItem" onClick={() => { 
+                document.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true }));
+                closeAllMenus(); 
+              }}>
+                Deshacer <span style={{ float:'right', opacity:0.5 }}>Ctrl+Z</span>
+              </button>
+              <button type="button" className="menuDropdownItem" onClick={() => { 
+                document.dispatchEvent(new KeyboardEvent('keydown', { key: 'y', ctrlKey: true }));
+                closeAllMenus(); 
+              }}>
+                Rehacer <span style={{ float:'right', opacity:0.5 }}>Ctrl+Y</span>
+              </button>
               <div className="menuDivider" />
+              <button type="button" className="menuDropdownItem" onClick={() => { 
+                setResult(xml);
+                setShowResultModal(true); 
+                closeAllMenus(); 
+              }}>
+                Ver resultado XML
+              </button>
+            </div>
+          </details>
+          <details className="menuDropdown">
+            <summary className="menuItem" style={{ textAlign: 'left' }}>Configuraciones</summary>
+            <div className="menuDropdownList">
               <button type="button" className="menuDropdownItem" onClick={() => { openApiConfigModal(); closeAllMenus(); }}>
                 Config API
               </button>
@@ -732,38 +838,7 @@ export default function LabelWorkbench() {
               </button>
             </div>
           </details>
-          <details className="menuDropdown">
-            <summary className="menuItem">Editar</summary>
-            <div className="menuDropdownList">
-              <details className="menuSubDropdown">
-                <summary className="menuDropdownItem">Procesar</summary>
-                <div className="menuSubDropdownList">
-                  <button type="button" className={`menuDropdownItem ${action === "parse" ? "active" : ""}`} onClick={() => { setAction("parse"); closeAllMenus(); }}>
-                    parse
-                  </button>
-                  <button type="button" className={`menuDropdownItem ${action === "convert-to-glabels" ? "active" : ""}`} onClick={() => { setAction("convert-to-glabels"); closeAllMenus(); }}>
-                    convert-to-glabels
-                  </button>
-                  <button type="button" className={`menuDropdownItem ${action === "convert-from-glabels" ? "active" : ""}`} onClick={() => { setAction("convert-from-glabels"); closeAllMenus(); }}>
-                    convert-from-glabels
-                  </button>
-                </div>
-              </details>
-              <button type="button" className="menuDropdownItem" onClick={() => { setShowResultModal(true); closeAllMenus(); }}>
-                Ver resultado
-              </button>
-            </div>
-          </details>
-          <details className="menuDropdown">
-            <summary className="menuItem">Vista</summary>
-            <div className="menuDropdownList">
-              <button type="button" className="menuDropdownItem" onClick={restorePanels}>
-                Restaurar paneles
-              </button>
-            </div>
-          </details>
-          <div className="menuItem" onClick={() => window.open("https://github.com/EskenderDev/SAELABEL", "_blank")}>GitHub</div>
-          <div className="menuItem" onClick={() => alert("SAELABEL App Studio v1.0.0")}>Acerca de</div>
+          <div className="menuItem" onClick={() => setShowAboutModal(true)}>Acerca de</div>
 
           <div style={{ flex: 1, minWidth: '20px' }} data-tauri-drag-region />
 
@@ -779,32 +854,92 @@ export default function LabelWorkbench() {
             </button>
           </div>
         </nav>
-        <VisualCanvasEditor
-          xml={xml}
-          apiBaseUrl={apiBaseUrl}
-          timeoutMs={timeoutMs}
-          docId={docId}
-          docName={docName}
-          metadata={{
-            version: metaVersion,
-            brand: metaBrand,
-            description: metaDescription,
-            part: metaPart,
-            size: metaSize,
-          }}
-          onXmlChange={(nextXml) => {
-            setXml(nextXml);
-            setError("");
-          }}
-          onDocNameChange={setDocName}
-          onMetadataChange={(m: any) => {
-            if (m.version !== undefined) setMetaVersion(m.version);
-            if (m.brand !== undefined) setMetaBrand(m.brand);
-            if (m.description !== undefined) setMetaDescription(m.description);
-            if (m.part !== undefined) setMetaPart(m.part);
-            if (m.size !== undefined) setMetaSize(m.size);
-          }}
-        />
+
+        {/* ── Conmutador de Vistas (Tabs) ── */}
+        {xml && (
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: '4px',
+            padding: '4px 12px', borderBottom: '1px solid var(--border,#e2e8f0)',
+            background: '#f1f5f9', flexShrink: 0, height: '32px'
+          }}>
+            <span style={{ fontSize: '0.68rem', color: 'var(--muted,#64748b)', marginRight: '6px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase' }}>DIBUJO DE:</span>
+            
+            {(['sae', 'glabels'] as const).slice(0, 1).map(k => (
+              <button key={k} onClick={() => setDocKind(k)}
+                style={{
+                  padding: '2px 14px', fontSize: '0.78rem', borderRadius: '6px 6px 0 0', border: '1px solid',
+                  cursor: 'pointer', fontWeight: docKind === k ? 700 : 500,
+                  transition: 'background 0.2s, color 0.2s',
+                  background: docKind === k ? '#fff' : 'transparent',
+                  color: docKind === k ? 'var(--primary,#16a34a)' : '#64748b',
+                  borderColor: docKind === k ? 'var(--border,#e2e8f0)' : 'transparent',
+                  borderBottomColor: docKind === k ? '#fff' : 'transparent',
+                  marginBottom: '-1px',
+                  display: 'flex', alignItems: 'center', gap: '0.4rem'
+                }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
+                Etiqueta
+              </button>
+            ))}
+
+            <button onClick={() => setDocKind('saetickets')}
+              style={{
+                padding: '2px 14px', fontSize: '0.78rem', borderRadius: '6px 6px 0 0', border: '1px solid',
+                cursor: 'pointer', fontWeight: docKind === 'saetickets' ? 700 : 500,
+                transition: 'background 0.2s, color 0.2s',
+                background: docKind === 'saetickets' ? '#fff' : 'transparent',
+                color: docKind === 'saetickets' ? 'var(--primary,#16a34a)' : '#64748b',
+                borderColor: docKind === 'saetickets' ? 'var(--border,#e2e8f0)' : 'transparent',
+                borderBottomColor: docKind === 'saetickets' ? '#fff' : 'transparent',
+                marginBottom: '-1px',
+                display: 'flex', alignItems: 'center', gap: '0.4rem'
+              }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect x="2" y="4" width="20" height="16" rx="2"/><line x1="6" y1="8" x2="6" y2="8"/><line x1="6" y1="12" x2="6" y2="12"/><line x1="6" y1="16" x2="6" y2="16"/></svg>
+              Tiquete
+            </button>
+          </div>
+        )}
+
+        <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column', background: '#fff' }}>
+          {docKind === 'saetickets' ? (
+            <TicketDesigner
+              initialXml={xml}
+              onUpdate={(newXml) => {
+                setXml(newXml);
+                setError("");
+              }}
+              apiBaseUrl={apiBaseUrl}
+            />
+          ) : (
+            <VisualCanvasEditor
+              xml={xml}
+              apiBaseUrl={apiBaseUrl}
+              timeoutMs={timeoutMs}
+              docId={docId}
+              docName={docName}
+              metadata={{
+                version: metaVersion,
+                brand: metaBrand,
+                description: metaDescription,
+                part: metaPart,
+                size: metaSize,
+              }}
+              onXmlChange={(nextXml) => {
+                setXml(nextXml);
+                setError("");
+              }}
+              onDocNameChange={setDocName}
+              onMetadataChange={(m: any) => {
+                if (m.version !== undefined) setMetaVersion(m.version);
+                if (m.brand !== undefined) setMetaBrand(m.brand);
+                if (m.description !== undefined) setMetaDescription(m.description);
+                if (m.part !== undefined) setMetaPart(m.part);
+                if (m.size !== undefined) setMetaSize(m.size);
+              }}
+            />
+          )}
+        </div>
+
         <footer className="studioFooter">
           <div className="footerStatus">
             <span className="dot" /> Ready
@@ -815,14 +950,164 @@ export default function LabelWorkbench() {
         </footer>
       </div>
 
+      {showTemplatesGallery && (
+        <div className="modalBackdrop" onClick={() => setShowTemplatesGallery(false)}>
+          <div className="modalCard" onClick={(e) => e.stopPropagation()} style={{ width: '800px', maxWidth: '95vw', background: '#f8fafc' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+              <div>
+                <h2 style={{ margin: 0, fontSize: '1.5rem' }}>Galería de Plantillas</h2>
+                <p style={{ margin: 0, fontSize: '0.85rem', color: '#64748b' }}>Selecciona un diseño base para tu nuevo documento</p>
+              </div>
+              <button className="winBtn" onClick={() => setShowTemplatesGallery(false)} style={{ background: '#eee', borderRadius: '50%', padding: '8px' }}>✕</button>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2rem' }}>
+              {/* Categoría: Tiquetes y Órdenes */}
+              <section>
+                <h3 style={{ fontSize: '0.75rem', fontWeight: 800, color: '#16a34a', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '1rem', borderBottom: '2px solid #dcfce7', paddingBottom: '0.5rem' }}>
+                  🎫 Tiquetes y Órdenes (POS)
+                </h3>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '1rem' }}>
+                  <button type="button" style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '1.25rem', textAlign: 'left', cursor: 'pointer', transition: 'all 0.2s' }} 
+                    onMouseOver={(e) => e.currentTarget.style.borderColor = '#16a34a'}
+                    onMouseOut={(e) => e.currentTarget.style.borderColor = '#e2e8f0'}
+                    onClick={() => { selectNewDocumentType("saetickets"); setShowTemplatesGallery(false); }}>
+                    <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+                      <span style={{ fontSize: '2rem' }}>📄</span>
+                      <div>
+                        <div style={{ fontWeight: 700, fontSize: '0.95rem' }}>Tiquete Estándar</div>
+                        <div style={{ fontSize: '0.75rem', color: '#64748b' }}>Diseño básico de 80mm para ventas generales</div>
+                      </div>
+                    </div>
+                  </button>
+
+                  <button type="button" style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '1.25rem', textAlign: 'left', cursor: 'pointer', transition: 'all 0.2s' }}
+                    onMouseOver={(e) => e.currentTarget.style.borderColor = '#16a34a'}
+                    onMouseOut={(e) => e.currentTarget.style.borderColor = '#e2e8f0'}
+                    onClick={() => {
+                      selectNewDocumentType("saetickets");
+                      setTimeout(() => {
+                        setXml(`<?xml version="1.0" encoding="utf-8"?>
+<saetickets version="1.0">
+  <setup width="42"/>
+  <commands>
+    <text align="center" bold="true" size="extra-large">ORDEN #\${ID}</text>
+    <separator char="="/>
+    <text align="left" bold="false" size="normal">Mesa: \${MESA}</text>
+    <separator char="-"/>
+    <each listVar="ITEMS" header="false" childField="EXTRAS">
+      <column field="QTY" label="" width="4" align="left"/>
+      <column field="DESC" label="" width="auto" align="left"/>
+    </each>
+    <separator char="-"/>
+    <feed lines="2"/>
+    <cut/>
+  </commands>
+</saetickets>`);
+                        setDocName("Orden de Cocina");
+                      }, 50);
+                      setShowTemplatesGallery(false);
+                    }}>
+                    <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+                      <span style={{ fontSize: '2rem' }}>🍳</span>
+                      <div>
+                        <div style={{ fontWeight: 700, fontSize: '0.95rem' }}>Orden de Cocina</div>
+                        <div style={{ fontSize: '0.75rem', color: '#64748b' }}>Optimizado para barra y cocina con sub-items para extras</div>
+                      </div>
+                    </div>
+                  </button>
+                </div>
+              </section>
+
+              {/* Categoría: Etiquetas */}
+              <section>
+                <h3 style={{ fontSize: '0.75rem', fontWeight: 800, color: '#3b82f6', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '1rem', borderBottom: '2px solid #dbeafe', paddingBottom: '0.5rem' }}>
+                  🏷️ Etiquetas y Logística
+                </h3>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '0.75rem' }}>
+                  {LABEL_PRESETS.map(p => (
+                    <button key={p.id} type="button" style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '0.75rem 1rem', textAlign: 'left', cursor: 'pointer', transition: 'all 0.15s' }}
+                      onMouseOver={(e) => e.currentTarget.style.borderColor = '#3b82f6'}
+                      onMouseOut={(e) => e.currentTarget.style.borderColor = '#e2e8f0'}
+                      onClick={() => {
+                        setNewDocumentDraft({ ...newDocumentDraft, ...p, kind: "sae" });
+                        selectNewDocumentType("sae");
+                        setShowTemplatesGallery(false);
+                      }}>
+                      <div style={{ fontWeight: 600, fontSize: '0.85rem' }}>{p.name}</div>
+                      <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>{p.width}x{p.height}{p.unit} • {p.brand}</div>
+                    </button>
+                  ))}
+                </div>
+              </section>
+            </div>
+            
+            <div style={{ marginTop: '2rem', display: 'flex', justifyContent: 'flex-end' }}>
+              <button type="button" className="secondary" onClick={() => setShowTemplatesGallery(false)}>Cerrar Galería</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showNewTypeModal && (
         <div className="modalBackdrop">
           <div className="modalCard" onClick={(e) => e.stopPropagation()}>
-            <h3>Nuevo documento</h3>
-            <p style={{ marginBottom: "0.8rem" }}>Selecciona el tipo de documento.</p>
-            <div className="typeChoiceRow">
-              <button type="button" className="secondary" onClick={() => selectNewDocumentType("sae")}>SAELABEL</button>
-              <button type="button" className="secondary" onClick={() => selectNewDocumentType("glabels")}>glabels</button>
+            <h3>Nueva Etiqueta</h3>
+            <p style={{ marginBottom: "0.8rem" }}>Selecciona el tipo de etiqueta.</p>
+            <div className="typeChoiceRow" style={{ display:"grid", gridTemplateColumns:"1fr", gap:"0.5rem" }}>
+              <button type="button" className="secondary" onClick={() => selectNewDocumentType("sae")}>Etiqueta SAE (ZPL/TSPL)</button>
+              <button type="button" className="secondary" onClick={() => {
+                 setNewDocumentDraft(p => ({ ...p, kind: "sae", name: "Nueva Etiqueta SAE" }));
+                 setShowNewTypeModal(false);
+                 setShowNewConfigModal(true);
+              }}>Configuración personalizada</button>
+            </div>
+            <h3>Galería de Plantillas</h3>
+            <p style={{ marginBottom: "0.8rem" }}>Elige una plantilla para comenzar.</p>
+            
+            <div style={{ fontSize:"0.7rem", fontWeight:700, color:"var(--muted,#64748b)", textTransform:"uppercase", marginBottom:"0.4rem" }}>Tiquetes y Órdenes</div>
+            <div className="typeChoiceRow" style={{ display:"grid", gridTemplateColumns:"repeat(2, 1fr)", gap:"0.75rem", marginBottom:"1rem" }}>
+              <button type="button" style={{ background:"#f0fdf4", color:"#16a34a", borderColor:"#16a44a", padding:"1rem", textAlign:"center", display:"flex", flexDirection:"column", alignItems:"center", gap:"0.5rem" }} onClick={() => selectNewDocumentType("saetickets")}>
+                <span style={{ fontSize:"1.5rem" }}>🎟️</span>
+                <span style={{ fontWeight:600 }}>Tiquete Estándar</span>
+              </button>
+              
+              <button type="button" style={{ background:"#fefce8", color:"#a16207", borderColor:"#ca8a04", padding:"1rem", textAlign:"center", display:"flex", flexDirection:"column", alignItems:"center", gap:"0.5rem" }} onClick={() => {
+                selectNewDocumentType("saetickets");
+                setTimeout(() => {
+                  setXml(`<?xml version="1.0" encoding="utf-8"?>
+<saetickets version="1.0">
+  <setup width="42"/>
+  <commands>
+    <text align="center" bold="true" size="extra-large">ORDEN #\${ID}</text>
+    <separator char="="/>
+    <text align="left" bold="false" size="normal">Mesa: \${MESA}</text>
+    <separator char="-"/>
+    <each listVar="ITEMS" header="false">
+      <column field="QTY" label="" width="4" align="left"/>
+      <column field="DESC" label="" width="auto" align="left"/>
+    </each>
+    <separator char="-"/>
+    <feed lines="2"/>
+    <cut/>
+  </commands>
+</saetickets>`);
+                  setDocName("Orden de Cocina");
+                }, 50);
+              }}>
+                <span style={{ fontSize:"1.5rem" }}>🍳</span>
+                <span style={{ fontWeight:600 }}>Orden Cocina</span>
+              </button>
+            </div>
+
+            <div style={{ fontSize:"0.7rem", fontWeight:700, color:"var(--muted,#64748b)", textTransform:"uppercase", marginBottom:"0.4rem" }}>Etiquetas</div>
+            <div className="typeChoiceRow" style={{ display:"grid", gridTemplateColumns:"repeat(3, 1fr)", gap:"0.5rem" }}>
+              {LABEL_PRESETS.slice(0, 3).map(p => (
+                <button key={p.id} type="button" className="secondary" style={{ padding:"0.6rem", fontSize:"0.75rem" }} onClick={() => {
+                   setNewDocumentDraft({ ...newDocumentDraft, ...p, kind: "sae" });
+                   selectNewDocumentType("sae"); // This will trigger applyPreset internally or we can do it here
+                }}>{p.name}</button>
+              ))}
             </div>
             <div className="modalActions">
               <button type="button" className="secondary" onClick={() => setShowNewTypeModal(false)}>Cancelar</button>
@@ -943,6 +1228,67 @@ export default function LabelWorkbench() {
                   setPingStatus("");
                 }
               }}>Probar y Guardar</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {showOpenDocModal && (
+        <div className="modalBackdrop" onClick={() => setShowOpenDocModal(false)}>
+          <div className="modalCard" onClick={(e) => e.stopPropagation()} style={{ width: '600px', maxWidth: '95vw', background: '#f8fafc' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+              <h3 style={{ margin: 0 }}>Abrir documento de base de datos</h3>
+              <button className="winBtn" onClick={() => setShowOpenDocModal(false)}>✕</button>
+            </div>
+            <div style={{ marginBottom: '1rem', display: 'flex', gap: '0.5rem' }}>
+              <input 
+                type="text" 
+                placeholder="Buscar documento..." 
+                value={openDocSearch}
+                onChange={(e) => setOpenDocSearch(e.target.value)}
+                autoFocus
+                style={{ flex: 1 }}
+              />
+              <button type="button" className="secondary" onClick={() => fileInputRef.current?.click()}>
+                📁 Abrir archivo...
+              </button>
+              <input type="file" ref={fileInputRef} onChange={importInput} style={{ display: 'none' }} accept=".xml,.saelabels,.saetikets" />
+            </div>
+            <div style={{ maxHeight: '400px', overflowY: 'auto', border: '1px solid #e2e8f0', borderRadius: '8px', background: '#fff' }}>
+              {documents.filter(d => d.name.toLowerCase().includes(openDocSearch.toLowerCase())).length > 0 ? (
+                documents.filter(d => d.name.toLowerCase().includes(openDocSearch.toLowerCase())).map(d => (
+                  <button 
+                    key={d.id} 
+                    type="button" 
+                    onClick={() => { loadDocument(d.id); setShowOpenDocModal(false); }}
+                    style={{
+                      width: '100%', textAlign: 'left', padding: '0.8rem 1rem', background: 'none', border: '0',
+                      borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', gap: '0.75rem',
+                      cursor: 'pointer', transition: 'background 0.2s'
+                    }}
+                    onMouseOver={(e) => e.currentTarget.style.background = '#f8fafc'}
+                    onMouseOut={(e) => e.currentTarget.style.background = 'none'}
+                  >
+                    <span style={{ fontSize: '1.2rem' }}>{d.kind === 'saetickets' ? '🎫' : '🏷️'}</span>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontWeight: 600, fontSize: '0.9rem', color: '#1e293b' }}>{d.name}</div>
+                      <div style={{ fontSize: '0.75rem', color: '#64748b' }}>Tipo: {d.kind} • Actualizado: {new Date(d.updatedAtUtc).toLocaleString()}</div>
+                    </div>
+                    <button 
+                      type="button" 
+                      onClick={(e) => { e.stopPropagation(); deleteDocument(d.id); }}
+                      className="winBtn"
+                      style={{ padding: '0.4rem', color: '#ef4444', opacity: 0.6 }}
+                      onMouseOver={(e) => e.currentTarget.style.opacity = '1'}
+                      onMouseOut={(e) => e.currentTarget.style.opacity = '0.6'}
+                      title="Eliminar documento"
+                    >
+                      🗑️
+                    </button>
+                  </button>
+                ))
+              ) : (
+                <div style={{ padding: '2rem', textAlign: 'center', color: '#94a3b8' }}>No se encontraron documentos</div>
+              )}
             </div>
           </div>
         </div>
@@ -2130,8 +2476,8 @@ export default function LabelWorkbench() {
           border-radius: 8px;
           padding: 0.3rem;
           box-shadow: 0 10px 24px rgba(0,0,0,0.12);
-          z-index: 30;
-          text-transform: capitalize;
+          z-index: 200;
+          text-transform: none;
         }
         .menuDivider {
           height: 1px;
@@ -2144,10 +2490,13 @@ export default function LabelWorkbench() {
           border: 0;
           color: var(--text);
           border-radius: 6px;
-          padding: 0.45rem 0.55rem;
-          font-size: 0.82rem;
-          font-weight: 600;
+          padding: 0.5rem 0.8rem;
+          font-size: 0.85rem;
+          font-weight: 500;
           text-align: left;
+          display: block;
+          width: 100%;
+          cursor: pointer;
         }
         .menuDropdownItem:hover {
           background: #f1f5f9;
@@ -2162,19 +2511,34 @@ export default function LabelWorkbench() {
         }
         .menuSubDropdown summary {
           list-style: none;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+        }
+        .menuSubDropdown summary::after {
+          content: "›";
+          font-size: 1.2rem;
+          margin-left: 0.5rem;
+          opacity: 0.5;
         }
         .menuSubDropdown summary::-webkit-details-marker {
           display: none;
         }
         .menuSubDropdownList {
-          margin-top: 0.2rem;
+          position: absolute;
+          left: 100%;
+          top: 0;
+          margin-left: 2px;
+          min-width: 180px;
           border: 1px solid var(--border);
           border-radius: 8px;
-          background: #f8fafc;
-          padding: 0.25rem;
+          background: #fff;
+          padding: 0.3rem;
           display: flex;
           flex-direction: column;
           gap: 0.15rem;
+          box-shadow: 0 8px 20px rgba(0,0,0,0.1);
+          z-index: 210;
         }
         
         .inspectorFields {
@@ -2405,6 +2769,16 @@ export default function LabelWorkbench() {
           height: 16px;
           background: #e2e8f0;
           margin: 0 0.2rem;
+        }
+
+        .visualMode {
+          flex: 1;
+          display: flex;
+          flex-direction: column;
+          height: 100%;
+          width: 100%;
+          border: none !important;
+          border-radius: 0 !important;
         }
 
         /* Inspector Panel Styles */
@@ -2672,32 +3046,42 @@ export default function LabelWorkbench() {
       {propertiesModalOpen && (
         <div className="modalBackdrop" onClick={() => setPropertiesModalOpen(false)}>
           <div className="modalCard" onClick={(e) => e.stopPropagation()}>
-            <h3>Propiedades del Documento</h3>
-            <div className="newDocGrid" style={{ marginTop: "1rem" }}>
-              <label className="menuField">
+            <h3 style={{ marginBottom: '1.25rem' }}>Propiedades del Documento</h3>
+            <div className="newDocGrid">
+              <label className="menuField full">
                 Nombre
                 <input value={docName} onChange={(e) => setDocName(e.target.value)} />
               </label>
-              <label className="menuField">
-                Version
-                <input value={metaVersion} onChange={(e) => setMetaVersion(e.target.value)} />
-              </label>
-              <label className="menuField">
-                Brand
-                <input value={metaBrand} onChange={(e) => setMetaBrand(e.target.value)} />
-              </label>
-              <label className="menuField">
-                Part
-                <input value={metaPart} onChange={(e) => setMetaPart(e.target.value)} />
-              </label>
-              <label className="menuField">
-                Size
-                <input value={metaSize} onChange={(e) => setMetaSize(e.target.value)} />
-              </label>
-              <label className="menuField full">
-                Description
-                <textarea rows={2} value={metaDescription} onChange={(e) => setMetaDescription(e.target.value)} />
-              </label>
+              
+              {docKind !== 'saetickets' ? (
+                <>
+                  <label className="menuField">
+                    Version
+                    <input value={metaVersion} onChange={(e) => setMetaVersion(e.target.value)} />
+                  </label>
+                  <label className="menuField">
+                    Brand
+                    <input value={metaBrand} onChange={(e) => setMetaBrand(e.target.value)} />
+                  </label>
+                  <label className="menuField">
+                    Part
+                    <input value={metaPart} onChange={(e) => setMetaPart(e.target.value)} />
+                  </label>
+                  <label className="menuField">
+                    Size
+                    <input value={metaSize} onChange={(e) => setMetaSize(e.target.value)} />
+                  </label>
+                  <label className="menuField full">
+                    Description
+                    <textarea rows={2} value={metaDescription} onChange={(e) => setMetaDescription(e.target.value)} />
+                  </label>
+                </>
+              ) : (
+                <div style={{ gridColumn: '1 / -1', padding: '1rem', background: '#f1f5f9', borderRadius: '8px', fontSize: '0.85rem', color: '#475569' }}>
+                   <strong>Configuración de Tiquete</strong><br/>
+                   Las dimensiones se definen en el bloque Setup del XML como 42 (80mm) o 32 (58mm).
+                </div>
+              )}
             </div>
             <div className="modalActions">
               <button type="button" className="primary" onClick={() => setPropertiesModalOpen(false)}>Aceptar</button>
@@ -2720,6 +3104,36 @@ export default function LabelWorkbench() {
               <button type="button" className="secondary" onClick={() => setSaveAsModalOpen(false)}>Cancelar</button>
               <button type="button" className="primary" onClick={saveAsDoc}>Guardar</button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {showAboutModal && (
+        <div className="modalBackdrop" onClick={() => setShowAboutModal(false)}>
+          <div className="modalCard" onClick={(e) => e.stopPropagation()} style={{ width: '400px', textAlign: 'center' }}>
+            <div style={{ marginBottom: '1.5rem', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+              <div style={{ width: '84px', height: '84px', background: 'var(--primary,#16a34a)', borderRadius: '18px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: '2.5rem', marginBottom: '1rem', boxShadow: '0 8px 20px rgba(22,163,74,0.2)' }}>
+                🏷️
+              </div>
+              <h2 style={{ margin: 0 }}>SAE Studio</h2>
+              <p style={{ margin: '0.2rem 0', opacity: 0.6, fontSize: '0.85rem' }}>Versión 1.2.0-stable</p>
+            </div>
+            
+            <div style={{ background: '#f8fafc', padding: '1.25rem', borderRadius: '12px', marginBottom: '1.5rem', border: '1px solid #e2e8f0' }}>
+              <p style={{ margin: '0 0 1rem 0', fontSize: '0.9rem', color: '#475569' }}>
+                Suite profesional de diseño de etiquetas y tiquetes para motores de impresión SAE.
+              </p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', alignItems: 'center' }}>
+                <a href="https://github.com/EskenderDev/SAELABEL" target="_blank" style={{ color: 'var(--primary,#16a34a)', fontWeight: 600, textDecoration: 'none', fontSize: '0.85rem' }}>
+                  🌐 Ver en GitHub
+                </a>
+                <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase' }}>Licencia MIT</span>
+              </div>
+            </div>
+
+            <button type="button" className="primary" onClick={() => setShowAboutModal(false)} style={{ width: '100%' }}>
+              Cerrar
+            </button>
           </div>
         </div>
       )}

@@ -23,6 +23,9 @@ export type LogicalPrinterDto = {
   description?: string | null;
   physicalPrinter: string;
   isActive: boolean;
+  copies: number;
+  paperWidth: number;
+  mediaType: string;
 };
 
 export type UpsertLogicalPrinterRequest = {
@@ -31,6 +34,9 @@ export type UpsertLogicalPrinterRequest = {
   description?: string | null;
   physicalPrinter: string;
   isActive: boolean;
+  copies: number;
+  paperWidth: number;
+  mediaType: string;
 };
 
 export type EditorElementDefinition = {
@@ -47,14 +53,14 @@ export type EditorElementDefinition = {
 export type EditorDocumentSummary = {
   id: string;
   name: string;
-  kind: "sae" | "glabels";
+  kind: "sae" | "glabels" | "saetickets";
   updatedAtUtc: string;
 };
 
 export type EditorDocument = {
   id: string;
   name: string;
-  kind: "sae" | "glabels";
+  kind: "sae" | "glabels" | "saetickets";
   xml: string;
   createdAtUtc: string;
   updatedAtUtc: string;
@@ -63,7 +69,7 @@ export type EditorDocument = {
 export type UpsertEditorDocumentPayload = {
   id?: string;
   name: string;
-  kind: "sae" | "glabels";
+  kind: "sae" | "glabels" | "saetickets";
   xml: string;
 };
 
@@ -82,8 +88,14 @@ type ApiClientOptions = {
   timeoutMs?: number;
 };
 
-const DEFAULT_API_BASE_URL = import.meta.env.PUBLIC_SAELABEL_API_BASE_URL ?? "http://localhost:5117";
+let DEFAULT_API_BASE_URL = import.meta.env.PUBLIC_SAELABEL_API_BASE_URL ?? "http://localhost:5117";
 const DEFAULT_TIMEOUT_MS = 30000;
+
+export function setApiBaseUrl(url: string) {
+  DEFAULT_API_BASE_URL = url;
+  // Re-initialize labelsApi with the new URL
+  Object.assign(labelsApi, createLabelsApi(DEFAULT_API_BASE_URL));
+}
 
 function createTimeoutFetch(timeoutMs: number): typeof fetch {
   return async (input, init) => {
