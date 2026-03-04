@@ -313,6 +313,19 @@ function contains(a: { l: number; t: number; r: number; b: number }, b: { l: num
   return b.l >= a.l && b.t >= a.t && b.r <= a.r && b.b <= a.b;
 }
 
+const toHexColor = (v: string | null | undefined): string | undefined => {
+  if (!v) return undefined;
+  if (v.startsWith("#")) return v;
+  if (v.startsWith("0x")) {
+    const hex = v.substring(2);
+    if (hex.length === 1 || hex.length === 2) return "#000000"; // Assume 0xff is black
+    if (hex.length === 6) return `#${hex}`;
+    return "#000000";
+  }
+  if (v === "none" || v === "transparent") return undefined;
+  return v;
+};
+
 function parse(xml: string): Parsed {
   const d = new DOMParser().parseFromString(xml, "application/xml");
   if (d.querySelector("parsererror")) throw new Error("XML invalido.");
@@ -329,8 +342,8 @@ function parse(xml: string): Parsed {
       skewX: n(e.getAttribute("skew_x"), 0),
       skewY: n(e.getAttribute("skew_y"), 0),
       barcodeKind: e.getAttribute("style")?.toUpperCase() ?? undefined,
-      fillColor: e.getAttribute("fill_color") ?? e.getAttribute("color") ?? undefined,
-      lineColor: e.getAttribute("line_color") ?? undefined,
+      fillColor: toHexColor(e.getAttribute("fill_color") ?? e.getAttribute("color")),
+      lineColor: toHexColor(e.getAttribute("line_color")),
       lineWidth: n(e.getAttribute("line_width"), 1),
       groupId: e.getAttribute("group_id") ?? undefined,
       showText: e.getAttribute("show_text") === "true",
@@ -373,8 +386,8 @@ function parse(xml: string): Parsed {
       skewX: n(e.getAttribute("skew_x"), 0),
       skewY: n(e.getAttribute("skew_y"), 0),
       barcodeKind: e.getAttribute("style")?.toUpperCase() ?? undefined,
-      fillColor: e.getAttribute("fill_color") ?? e.getAttribute("color") ?? undefined,
-      lineColor: e.getAttribute("line_color") ?? undefined,
+      fillColor: toHexColor(e.getAttribute("fill_color") ?? e.getAttribute("color")),
+      lineColor: toHexColor(e.getAttribute("line_color")),
       lineWidth: n(e.getAttribute("line_width"), 1),
       groupId: e.getAttribute("group_id") ?? undefined,
       showText: e.getAttribute("text") === "true",
@@ -908,11 +921,20 @@ export default function VisualCanvasEditor({
         e.setAttribute("lock_aspect_ratio", o.type === "image" ? "true" : "false"); e.setAttribute("shadow", "false");
         e.setAttribute("rot_deg", pt(o.rotateDeg));
         e.setAttribute("scale_x", pt(o.scaleX)); e.setAttribute("scale_y", pt(o.scaleY)); e.setAttribute("skew_x", pt(o.skewX)); e.setAttribute("skew_y", pt(o.skewY));
-        if (o.fillColor) e.setAttribute("fill_color", o.fillColor);
-        if (o.lineColor) e.setAttribute("line_color", o.lineColor);
+        e.setAttribute("fill_color", o.fillColor || "none");
+        e.setAttribute("line_color", o.lineColor || "none");
         if (o.lineWidth) e.setAttribute("line_width", pt(o.lineWidth));
         if (o.groupId) e.setAttribute("group_id", o.groupId);
-        if (o.type === "text") { e.setAttribute("color", "0xff"); e.setAttribute("font_family", o.fontFamily || "Sans"); e.setAttribute("font_size", String(o.fontSize ?? 10)); e.setAttribute("align", "left"); e.setAttribute("valign", "top"); const p = next.createElement("p"); p.textContent = o.content || "${texto}"; e.appendChild(p); }
+        if (o.type === "text") { 
+          e.setAttribute("color", o.fillColor || "#000000"); 
+          e.setAttribute("font_family", o.fontFamily || "Sans"); 
+          e.setAttribute("font_size", String(o.fontSize ?? 10)); 
+          e.setAttribute("align", "left"); 
+          e.setAttribute("valign", "top"); 
+          const p = next.createElement("p"); 
+          p.textContent = o.content || "${texto}"; 
+          e.appendChild(p); 
+        }
         if (o.type === "barcode") { 
           e.setAttribute("style", o.barcodeKind?.toLowerCase() || "code128"); 
           e.setAttribute("data", o.content || "${barcode}"); 
@@ -920,8 +942,15 @@ export default function VisualCanvasEditor({
           e.setAttribute("text_pos", o.textPosition || "bottom");
           e.setAttribute("checksum", "false"); 
         }
-        if (o.type === "box" || o.type === "ellipse") { e.setAttribute("fill_color", "0xffffff"); e.setAttribute("line_color", "0xff"); e.setAttribute("line_width", "1pt"); }
-        if (o.type === "line") { e.setAttribute("dx", `${pt(o.w)}pt`); e.setAttribute("dy", "0pt"); e.setAttribute("line_color", "0xff"); e.setAttribute("line_width", "1pt"); }
+        if (o.type === "box" || o.type === "ellipse") { 
+          // Defaults are handled above by the generic attributes if missing
+          if (!o.lineWidth) e.setAttribute("line_width", "1pt"); 
+        }
+        if (o.type === "line") { 
+          e.setAttribute("dx", `${pt(o.w)}pt`); 
+          e.setAttribute("dy", "0pt"); 
+          if (!o.lineWidth) e.setAttribute("line_width", "1pt"); 
+        }
         if (o.type === "image") e.setAttribute("src", o.content ?? "");
         if (o.type === "path") e.setAttribute("data", o.content ?? "");
         node.appendChild(e);
