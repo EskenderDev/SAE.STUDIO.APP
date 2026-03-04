@@ -1,47 +1,425 @@
 {
-  "openapi": "3.0.1",
-  "info": { "title": "SAELABEL API", "version": "v1" },
+  "openapi": "3.1.1",
+  "info": {
+    "title": "SAELABEL.Api | v1",
+    "version": "1.0.0"
+  },
+  "servers": [
+    {
+      "url": "https://localhost:7228/"
+    }
+  ],
   "paths": {
-    "/api/labels/parse": {
-      "post": {
-        "operationId": "labels_parse",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": { "$ref": "#/components/schemas/XmlRequest" }
+    "/api/editor/elements": {
+      "get": {
+        "tags": [
+          "Editor"
+        ],
+        "operationId": "GetEditorElements",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/EditorElementDto"
+                  }
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/EditorElementDto"
+                  }
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/EditorElementDto"
+                  }
+                }
+              }
             }
           }
+        }
+      },
+      "post": {
+        "tags": [
+          "Editor"
+        ],
+        "operationId": "UpsertEditorElement",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpsertEditorElementRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpsertEditorElementRequest"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpsertEditorElementRequest"
+              }
+            }
+          },
+          "required": true
         },
         "responses": {
           "200": {
-            "description": "ok",
+            "description": "OK",
             "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/EditorElementDto"
+                }
+              },
               "application/json": {
-                "schema": { "type": "object", "additionalProperties": true }
+                "schema": {
+                  "$ref": "#/components/schemas/EditorElementDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EditorElementDto"
+                }
               }
             }
           }
         }
       }
     },
-    "/api/labels/convert-to-glabels": {
-      "post": {
-        "operationId": "labels_convert_to_glabels",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": { "$ref": "#/components/schemas/XmlRequest" }
+    "/api/editor/elements/{id}": {
+      "delete": {
+        "tags": [
+          "Editor"
+        ],
+        "operationId": "DeleteEditorElement",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
             }
           }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/editor/documents": {
+      "get": {
+        "tags": [
+          "Editor"
+        ],
+        "operationId": "GetEditorDocuments",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/EditorDocumentSummaryDto"
+                  }
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/EditorDocumentSummaryDto"
+                  }
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/EditorDocumentSummaryDto"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Editor"
+        ],
+        "operationId": "UpsertEditorDocument",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpsertEditorDocumentRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpsertEditorDocumentRequest"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpsertEditorDocumentRequest"
+              }
+            }
+          },
+          "required": true
         },
         "responses": {
           "200": {
-            "description": "ok",
+            "description": "OK",
             "content": {
               "text/plain": {
-                "schema": { "type": "string" }
+                "schema": {
+                  "$ref": "#/components/schemas/EditorDocumentDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EditorDocumentDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EditorDocumentDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/editor/documents/{id}": {
+      "get": {
+        "tags": [
+          "Editor"
+        ],
+        "operationId": "GetEditorDocument",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/EditorDocumentDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EditorDocumentDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EditorDocumentDto"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Editor"
+        ],
+        "operationId": "DeleteEditorDocument",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/editor/settings/{key}": {
+      "get": {
+        "tags": [
+          "Editor"
+        ],
+        "operationId": "GetEditorSetting",
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/EditorSettingDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EditorSettingDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EditorSettingDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/editor/settings": {
+      "post": {
+        "tags": [
+          "Editor"
+        ],
+        "operationId": "SaveEditorSetting",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateEditorSettingRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateEditorSettingRequest"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateEditorSettingRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/editor/export/saesystem": {
+      "post": {
+        "tags": [
+          "Editor"
+        ],
+        "operationId": "ExportToSaeSystem",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExportRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExportRequest"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExportRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/labels/parse": {
+      "post": {
+        "tags": [
+          "Labels"
+        ],
+        "summary": "Parsea un documento .saelabels",
+        "description": "Recibe XML SAELABEL y responde el documento estructurado en JSON.\n\n**Request example**\n```json\n{ \"xml\": \"<saelabels version=\\\"1.0\\\"><template brand=\\\"SAE\\\" description=\\\"Demo\\\" part=\\\"P-1\\\" size=\\\"custom\\\"><label_rectangle width_pt=\\\"144\\\" height_pt=\\\"72\\\" round_pt=\\\"0\\\" x_waste_pt=\\\"0\\\" y_waste_pt=\\\"0\\\" /><layout dx_pt=\\\"0\\\" dy_pt=\\\"0\\\" nx=\\\"1\\\" ny=\\\"1\\\" x0_pt=\\\"0\\\" y0_pt=\\\"0\\\" /></template><objects /><variables /></saelabels>\" }\n```",
+        "operationId": "ParseSaeLabels",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/XmlPayload"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/XmlPayload"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/XmlPayload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/SaeLabelsDocument"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SaeLabelsDocument"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SaeLabelsDocument"
+                }
               }
             }
           }
@@ -50,23 +428,431 @@
     },
     "/api/labels/convert-from-glabels": {
       "post": {
-        "operationId": "labels_convert_from_glabels",
+        "tags": [
+          "Labels"
+        ],
+        "summary": "Convierte XML glabels a .saelabels",
+        "description": "Toma un XML con estructura glabels y devuelve XML SAELABEL normalizado.\n\n**Request example**\n```json\n{ \"xml\": \"<Glabels-document><Template brand=\\\"Avery\\\" description=\\\"Mailing\\\" part=\\\"8160\\\" size=\\\"US-Letter\\\"><Label-rectangle width=\\\"189pt\\\" height=\\\"72pt\\\" round=\\\"0pt\\\"><Layout dx=\\\"200pt\\\" dy=\\\"72pt\\\" nx=\\\"3\\\" ny=\\\"10\\\" x0=\\\"11.25pt\\\" y0=\\\"36pt\\\" /></Label-rectangle></Template><Objects /><Variables /></Glabels-document>\" }\n```",
+        "operationId": "ConvertFromGlabels",
         "requestBody": {
-          "required": true,
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/XmlRequest" }
+              "schema": {
+                "$ref": "#/components/schemas/XmlPayload"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/XmlPayload"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/XmlPayload"
+              }
             }
-          }
+          },
+          "required": true
         },
         "responses": {
           "200": {
-            "description": "ok",
+            "description": "OK",
             "content": {
               "text/plain": {
-                "schema": { "type": "string" }
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "type": "string"
+                }
               }
             }
+          }
+        }
+      }
+    },
+    "/api/labels/convert-to-glabels": {
+      "post": {
+        "tags": [
+          "Labels"
+        ],
+        "summary": "Convierte .saelabels a XML glabels",
+        "description": "Toma XML SAELABEL y devuelve XML compatible glabels.\n\n**Request example**\n```json\n{ \"xml\": \"<saelabels version=\\\"1.0\\\"><template brand=\\\"SAE\\\" description=\\\"Demo\\\" part=\\\"P-1\\\" size=\\\"custom\\\"><label_rectangle width_pt=\\\"144\\\" height_pt=\\\"72\\\" round_pt=\\\"0\\\" x_waste_pt=\\\"0\\\" y_waste_pt=\\\"0\\\" /><layout dx_pt=\\\"0\\\" dy_pt=\\\"0\\\" nx=\\\"1\\\" ny=\\\"1\\\" x0_pt=\\\"0\\\" y0_pt=\\\"0\\\" /></template><objects /><variables /></saelabels>\" }\n```",
+        "operationId": "ConvertToGlabels",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/XmlPayload"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/XmlPayload"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/XmlPayload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/labels/render": {
+      "post": {
+        "tags": [
+          "Labels"
+        ],
+        "summary": "Renderiza etiqueta a imagen",
+        "description": "Renderiza una etiqueta SAELABEL y devuelve archivo de imagen.\n\n**Request example**\n```json\n{\n  \"xml\": \"<saelabels version=\\\"1.0\\\">...</saelabels>\",\n  \"format\": \"png\",\n  \"data\": { \"SKU\": \"ABC-123\" }\n}\n```",
+        "operationId": "RenderLabelImage",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RenderRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RenderRequest"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/RenderRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/labels/zpl": {
+      "post": {
+        "tags": [
+          "Labels"
+        ],
+        "summary": "Genera ZPL desde .saelabels",
+        "description": "Genera archivo `.zpl` con soporte de copias y variables.\n\n**Request example**\n```json\n{\n  \"xml\": \"<saelabels version=\\\"1.0\\\">...</saelabels>\",\n  \"copies\": 2,\n  \"data\": { \"SKU\": \"ABC-123\" }\n}\n```",
+        "operationId": "GenerateLabelZpl",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ZplRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ZplRequest"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/ZplRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/labels/print": {
+      "post": {
+        "tags": [
+          "Labels"
+        ],
+        "summary": "Imprime etiqueta",
+        "description": "Envía la etiqueta a una impresora destino.\n\n**Request example**\n```json\n{\n  \"xml\": \"<saelabels version=\\\"1.0\\\">...</saelabels>\",\n  \"printerName\": \"Zebra_ZD420\",\n  \"copies\": 1,\n  \"data\": { \"SKU\": \"ABC-123\" }\n}\n```",
+        "operationId": "PrintLabel",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PrintRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PrintRequest"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/PrintRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/labels/export-saelabels": {
+      "post": {
+        "tags": [
+          "Labels"
+        ],
+        "summary": "Exporta archivo .saelabels",
+        "description": "Valida y devuelve descarga XML con extensión `.saelabels`.\n\n**Request example**\n```json\n{\n  \"xml\": \"<saelabels version=\\\"1.0\\\">...</saelabels>\",\n  \"fileName\": \"producto-etiqueta\"\n}\n```",
+        "operationId": "ExportSaeLabelsFile",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExportRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExportRequest"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExportRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/logical-printers/system-printers": {
+      "get": {
+        "tags": [
+          "Logical Printers"
+        ],
+        "operationId": "GetSystemPrinters",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/logical-printers": {
+      "get": {
+        "tags": [
+          "Logical Printers"
+        ],
+        "operationId": "GetAllLogicalPrinters",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/LogicalPrinterDto"
+                  }
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/LogicalPrinterDto"
+                  }
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/LogicalPrinterDto"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Logical Printers"
+        ],
+        "operationId": "UpsertLogicalPrinter",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpsertLogicalPrinterRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpsertLogicalPrinterRequest"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpsertLogicalPrinterRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/LogicalPrinterDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LogicalPrinterDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LogicalPrinterDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/logical-printers/{id}": {
+      "get": {
+        "tags": [
+          "Logical Printers"
+        ],
+        "operationId": "GetLogicalPrinterById",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/LogicalPrinterDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LogicalPrinterDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LogicalPrinterDto"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Logical Printers"
+        ],
+        "operationId": "DeleteLogicalPrinter",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
           }
         }
       }
@@ -74,13 +860,562 @@
   },
   "components": {
     "schemas": {
-      "XmlRequest": {
+      "EditorDocumentDto": {
         "type": "object",
-        "required": ["xml"],
         "properties": {
-          "xml": { "type": "string" }
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "xml": {
+            "type": "string"
+          },
+          "createdAtUtc": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAtUtc": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "EditorDocumentSummaryDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "updatedAtUtc": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "EditorElementDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string"
+          },
+          "objectType": {
+            "type": "string"
+          },
+          "defaultWidthPt": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "defaultHeightPt": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "defaultContent": {
+            "type": "string"
+          }
+        }
+      },
+      "EditorSettingDto": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          }
+        }
+      },
+      "ExportRequest": {
+        "type": "object",
+        "properties": {
+          "xml": {
+            "type": "string"
+          },
+          "fileName": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "LogicalPrinterDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "physicalPrinter": {
+            "type": "string"
+          },
+          "isActive": {
+            "type": "boolean"
+          }
+        }
+      },
+      "PrintRequest": {
+        "type": "object",
+        "properties": {
+          "xml": {
+            "type": "string"
+          },
+          "printerName": {
+            "type": "string"
+          },
+          "copies": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "data": {
+            "type": [
+              "null",
+              "object"
+            ],
+            "additionalProperties": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "RenderRequest": {
+        "type": "object",
+        "properties": {
+          "xml": {
+            "type": "string"
+          },
+          "format": {
+            "type": "string"
+          },
+          "data": {
+            "type": [
+              "null",
+              "object"
+            ],
+            "additionalProperties": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "SaeLabelObject": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string"
+          },
+          "xPt": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "yPt": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "widthPt": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "heightPt": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "content": {
+            "type": "string"
+          },
+          "style": {
+            "type": "string"
+          },
+          "color": {
+            "type": "string"
+          },
+          "dxPt": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "dyPt": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "showText": {
+            "type": "boolean"
+          },
+          "checksum": {
+            "type": "boolean"
+          }
+        }
+      },
+      "SaeLabelsDocument": {
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "string"
+          },
+          "template": {
+            "$ref": "#/components/schemas/SaeTemplate"
+          },
+          "objects": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SaeLabelObject"
+            }
+          },
+          "variables": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SaeLabelVariable"
+            }
+          }
+        }
+      },
+      "SaeLabelVariable": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "initialValue": {
+            "type": "string"
+          },
+          "increment": {
+            "type": "string"
+          },
+          "stepSize": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          }
+        }
+      },
+      "SaeLayout": {
+        "type": "object",
+        "properties": {
+          "dxPt": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "dyPt": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "nx": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "ny": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "x0Pt": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "y0Pt": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          }
+        }
+      },
+      "SaeTemplate": {
+        "type": "object",
+        "properties": {
+          "brand": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "part": {
+            "type": "string"
+          },
+          "size": {
+            "type": "string"
+          },
+          "productUrl": {
+            "type": "string"
+          },
+          "widthPt": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "heightPt": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "roundPt": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "xWastePt": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "yWastePt": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "layout": {
+            "$ref": "#/components/schemas/SaeLayout"
+          }
+        }
+      },
+      "UpdateEditorSettingRequest": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          }
+        }
+      },
+      "UpsertEditorDocumentRequest": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "xml": {
+            "type": "string"
+          }
+        }
+      },
+      "UpsertEditorElementRequest": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "key": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string"
+          },
+          "objectType": {
+            "type": "string"
+          },
+          "defaultWidthPt": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "defaultHeightPt": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "defaultContent": {
+            "type": "string"
+          }
+        }
+      },
+      "UpsertLogicalPrinterRequest": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "physicalPrinter": {
+            "type": "string"
+          },
+          "isActive": {
+            "type": "boolean"
+          }
+        }
+      },
+      "XmlPayload": {
+        "type": "object",
+        "properties": {
+          "xml": {
+            "type": "string"
+          }
+        }
+      },
+      "ZplRequest": {
+        "type": "object",
+        "properties": {
+          "xml": {
+            "type": "string"
+          },
+          "copies": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "data": {
+            "type": [
+              "null",
+              "object"
+            ],
+            "additionalProperties": {
+              "type": "string"
+            }
+          }
         }
       }
     }
-  }
+  },
+  "tags": [
+    {
+      "name": "Editor"
+    },
+    {
+      "name": "Labels"
+    },
+    {
+      "name": "Logical Printers"
+    }
+  ]
 }

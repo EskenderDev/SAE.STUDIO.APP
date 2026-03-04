@@ -9,6 +9,29 @@ export type XmlRequest = {
   xml: string;
 };
 
+export type PrintRequest = {
+  xml: string;
+  printerName: string;
+  data?: Record<string, string>;
+  copies?: number;
+};
+
+export type LogicalPrinterDto = {
+  id: string;
+  name: string;
+  description?: string | null;
+  physicalPrinter: string;
+  isActive: boolean;
+};
+
+export type UpsertLogicalPrinterRequest = {
+  id?: string;
+  name: string;
+  description?: string | null;
+  physicalPrinter: string;
+  isActive: boolean;
+};
+
 export type EditorElementDefinition = {
   id: string;
   key: string;
@@ -58,7 +81,7 @@ type ApiClientOptions = {
   timeoutMs?: number;
 };
 
-const DEFAULT_API_BASE_URL = import.meta.env.PUBLIC_SAELABEL_API_BASE_URL ?? "https://localhost:7097";
+const DEFAULT_API_BASE_URL = import.meta.env.PUBLIC_SAELABEL_API_BASE_URL ?? "http://localhost:5117";
 const DEFAULT_TIMEOUT_MS = 30000;
 
 function createTimeoutFetch(timeoutMs: number): typeof fetch {
@@ -162,6 +185,71 @@ export function createLabelsApi(baseUrl: string, options?: ApiClientOptions) {
           parseAs: "text",
           responseStyle: "data",
           throwOnError: true,
+        });
+      } catch (error) {
+        throw normalizeError(error);
+      }
+    },
+    print: async (payload: PrintRequest) => {
+      const fetchImpl = createTimeoutFetch(timeoutMs);
+      const url = `${baseUrl.trim().replace(/\/+$/, "")}/api/labels/print`;
+      try {
+        return await requestApi<{ printed: boolean; printer: string; copies: number }>(fetchImpl, url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+      } catch (error) {
+        throw normalizeError(error);
+      }
+    },
+    // Logical Printers
+    getSystemPrinters: async () => {
+      const fetchImpl = createTimeoutFetch(timeoutMs);
+      const url = `${baseUrl.trim().replace(/\/+$/, "")}/api/logical-printers/system-printers`;
+      try {
+        return await requestApi<string[]>(fetchImpl, url);
+      } catch (error) {
+        throw normalizeError(error);
+      }
+    },
+    getLogicalPrinters: async () => {
+      const fetchImpl = createTimeoutFetch(timeoutMs);
+      const url = `${baseUrl.trim().replace(/\/+$/, "")}/api/logical-printers`;
+      try {
+        return await requestApi<LogicalPrinterDto[]>(fetchImpl, url);
+      } catch (error) {
+        throw normalizeError(error);
+      }
+    },
+    getLogicalPrinterById: async (id: string) => {
+      const fetchImpl = createTimeoutFetch(timeoutMs);
+      const url = `${baseUrl.trim().replace(/\/+$/, "")}/api/logical-printers/${encodeURIComponent(id)}`;
+      try {
+        return await requestApi<LogicalPrinterDto>(fetchImpl, url);
+      } catch (error) {
+        throw normalizeError(error);
+      }
+    },
+    upsertLogicalPrinter: async (payload: UpsertLogicalPrinterRequest) => {
+      const fetchImpl = createTimeoutFetch(timeoutMs);
+      const url = `${baseUrl.trim().replace(/\/+$/, "")}/api/logical-printers`;
+      try {
+        return await requestApi<LogicalPrinterDto>(fetchImpl, url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+      } catch (error) {
+        throw normalizeError(error);
+      }
+    },
+    deleteLogicalPrinter: async (id: string) => {
+      const fetchImpl = createTimeoutFetch(timeoutMs);
+      const url = `${baseUrl.trim().replace(/\/+$/, "")}/api/logical-printers/${encodeURIComponent(id)}`;
+      try {
+        return await requestApi<void>(fetchImpl, url, {
+          method: "DELETE"
         });
       } catch (error) {
         throw normalizeError(error);

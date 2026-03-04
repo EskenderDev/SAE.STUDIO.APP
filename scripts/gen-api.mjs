@@ -4,7 +4,7 @@ import http from "node:http";
 import https from "node:https";
 import { URL } from "node:url";
 
-const specUrl = process.env.SAELABEL_OPENAPI_URL ?? "https://localhost:7097/openapi/v1.json";
+const specUrl = process.env.SAELABEL_OPENAPI_URL ?? "https://localhost:7228/openapi/v1.json";
 const specPath = "openapi/saelabel.openapi.json";
 const outputPath = "src/lib/api/generated";
 const timeoutMs = Number(process.env.SAELABEL_OPENAPI_TIMEOUT_MS ?? 15000);

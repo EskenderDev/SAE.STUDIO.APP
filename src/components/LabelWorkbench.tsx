@@ -3,6 +3,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { createLabelsApi, DEFAULT_API_BASE_URL, createEditorApi } from "@/lib/api/client";
 import type { EditorDocumentSummary, UpsertEditorDocumentPayload } from "@/lib/api/client";
 import VisualCanvasEditor from "@/components/VisualCanvasEditor";
+import LogicalPrintersManagerModal from "@/components/LogicalPrintersManagerModal";
 
 type Action = "parse" | "convert-to-glabels" | "convert-from-glabels";
 type DocKind = "sae" | "glabels";
@@ -153,6 +154,7 @@ export default function LabelWorkbench() {
   const [sessions, setSessions] = useState<SessionItem[]>([]);
   const [selectedSessionId, setSelectedSessionId] = useState("");
   const [showApiConfigModal, setShowApiConfigModal] = useState(false);
+  const [showPrintersManagerModal, setShowPrintersManagerModal] = useState(false);
   const [apiBaseUrlDraft, setApiBaseUrlDraft] = useState("");
   const [showResultModal, setShowResultModal] = useState(false);
   const [showNewTypeModal, setShowNewTypeModal] = useState(false);
@@ -258,7 +260,7 @@ export default function LabelWorkbench() {
       const docs = await editorApi.listDocuments();
       setDocuments(docs);
     } catch (e) {
-      console.error("Failed to refresh documents:", e);
+      // Ignorar error para no mostrar mensajes al cargar
     }
   };
 
@@ -621,20 +623,28 @@ export default function LabelWorkbench() {
     }
   };
 
-  const pingBackend = async (targetBaseUrl?: string) => {
+  const pingBackend = async (targetBaseUrl?: string): Promise<boolean> => {
     const base = (targetBaseUrl ?? apiBaseUrl).replace(/\/+$/, "");
-    setPingStatus("Probando conexion...");
+    setPingStatus("Probando conexión...");
     try {
       const response = await fetch(`${base}/openapi/v1.json`, {
         method: "GET",
+        signal: AbortSignal.timeout(5000),
       });
       if (response.ok) {
-        setPingStatus(`Conexion OK (${response.status})`);
+        setPingStatus(`✅ Conexión OK (HTTP ${response.status}) — ${base}`);
+        return true;
       } else {
-        setPingStatus(`Backend responde con ${response.status}`);
+        setPingStatus(`⚠️ Backend responde con HTTP ${response.status}`);
+        return false;
       }
-    } catch {
-      setPingStatus("No hay conexion con el backend.");
+    } catch (err: any) {
+      if (err?.name === "TimeoutError") {
+        setPingStatus(`❌ Timeout — el servidor no respondió en 5s`);
+      } else {
+        setPingStatus(`❌ Sin conexión: ${err?.message || "Failed to fetch"}`);
+      }
+      return false;
     }
   };
 
@@ -716,6 +726,9 @@ export default function LabelWorkbench() {
               <div className="menuDivider" />
               <button type="button" className="menuDropdownItem" onClick={() => { openApiConfigModal(); closeAllMenus(); }}>
                 Config API
+              </button>
+              <button type="button" className="menuDropdownItem" onClick={() => { setShowPrintersManagerModal(true); closeAllMenus(); }}>
+                Impresoras Lógicas
               </button>
             </div>
           </details>
@@ -878,28 +891,58 @@ export default function LabelWorkbench() {
       )}
       {showApiConfigModal && (
         <div className="modalBackdrop" onClick={() => setShowApiConfigModal(false)}>
-          <div className="modalCard" onClick={(e) => e.stopPropagation()}>
-            <h3>Configurar API Base URL</h3>
-            <label className="menuField" style={{ marginBottom: "0.6rem" }}>
-              API Base URL
+          <div className="modalCard" onClick={(e) => e.stopPropagation()} style={{ width: '460px', maxWidth: '95vw' }}>
+            <h3 style={{ marginTop: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M4.93 4.93a10 10 0 0 0 0 14.14"/></svg>
+              Configuración de API
+            </h3>
+            
+            <div style={{ background: 'var(--bg-subtle)', borderRadius: '6px', padding: '0.75rem 1rem', marginBottom: '1.25rem', fontSize: '0.82rem', color: 'var(--muted)', border: '1px solid var(--border)' }}>
+              <strong>URL del servidor SAELABEL.Api local.</strong><br />
+              Por defecto: <code style={{ background: 'var(--bg-card)', padding: '0.1rem 0.3rem', borderRadius: '3px' }}>http://localhost:5117</code>
+            </div>
+
+            <label style={{ display: 'block', margin: '0 0 0.5rem', fontSize: '0.85rem', fontWeight: 500 }}>API Base URL
               <input
                 type="text"
                 value={apiBaseUrlDraft}
-                onChange={(e) => setApiBaseUrlDraft(e.target.value)}
-                placeholder="https://localhost:7097"
+                onChange={(e) => { setApiBaseUrlDraft(e.target.value); setPingStatus(""); }}
+                placeholder="http://localhost:5117"
+                style={{ display: 'block', width: '100%', marginTop: '0.4rem', padding: '0.5rem', fontFamily: 'monospace', fontSize: '0.9rem' }}
+                onKeyDown={(e) => { if (e.key === 'Enter') pingBackend(apiBaseUrlDraft.trim()); }}
               />
             </label>
-            <div className="modalActions">
+
+            {pingStatus && (
+              <div style={{
+                padding: '0.6rem 0.8rem',
+                borderRadius: '5px',
+                fontSize: '0.82rem',
+                marginTop: '0.5rem',
+                background: pingStatus.startsWith('✅') ? '#dcfce7' : pingStatus.startsWith('❌') ? '#fee2e2' : '#fef9c3',
+                color: pingStatus.startsWith('✅') ? '#166534' : pingStatus.startsWith('❌') ? '#991b1b' : '#854d0e',
+              }}>
+                {pingStatus}
+              </div>
+            )}
+
+            <div className="modalActions" style={{ marginTop: '1.5rem' }}>
               <button type="button" className="secondary" onClick={() => setShowApiConfigModal(false)}>Cancelar</button>
               <button type="button" className="secondary" onClick={async () => {
                 const next = apiBaseUrlDraft.trim();
-                if (!next) {
-                  setError("API Base URL no puede estar vacio.");
-                  return;
-                }
+                if (!next) { setPingStatus("❌ La URL no puede estar vacía."); return; }
                 await pingBackend(next);
-              }}>Probar</button>
-              <button type="button" onClick={saveApiConfig}>Guardar</button>
+              }}>Probar conexión</button>
+              <button type="button" className="primary" onClick={async () => {
+                const next = apiBaseUrlDraft.trim();
+                if (!next) { setPingStatus("❌ La URL no puede estar vacía."); return; }
+                const ok = await pingBackend(next);
+                if (ok) {
+                  setApiBaseUrl(next);
+                  setShowApiConfigModal(false);
+                  setPingStatus("");
+                }
+              }}>Probar y Guardar</button>
             </div>
           </div>
         </div>
@@ -1514,69 +1557,66 @@ export default function LabelWorkbench() {
         .sidebarScroll::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
         
         .studioBody h3 {
-          margin: 0 0 1rem;
+          margin: 0;
           font-size: 0.9rem;
           text-transform: uppercase;
           letter-spacing: 0.05em;
           color: var(--muted);
+          display: flex;
+          align-items: center;
+          height: 100%;
         }
         .studioBody h4 {
-          margin: 1.5rem 0 0.75rem;
+          margin: 0 0 1rem;
           font-size: 0.9rem;
           color: var(--text);
         }
         
         .paletteGrid {
           display: grid;
-          grid-template-columns: 1fr 1fr;
-          gap: 0.75rem;
+          grid-template-columns: repeat(auto-fill, minmax(55px, 1fr));
+          gap: 0.35rem;
         }
         .paletteCard {
-          background: #fff;
-          border: 1px solid var(--border);
-          border-radius: 10px;
-          padding: 0.5rem;
-          transition: all 0.2s ease;
-        }
-        .paletteCard:hover {
-          border-color: var(--accent);
-          box-shadow: 0 4px 12px rgba(15, 118, 110, 0.05);
+          display: flex;
+          flex-direction: column;
         }
         .iconBtn {
           display: flex;
           width: 100%;
-          background: #f8fafc;
-          border: 1px solid transparent;
+          background: #fff;
+          border: 1px solid var(--border);
           color: var(--text);
-          padding: 0.75rem 0.5rem;
-          border-radius: 8px;
+          padding: 0.35rem 0.15rem;
+          border-radius: 6px;
           cursor: grab;
           flex-direction: column;
           align-items: center;
-          gap: 0.25rem;
+          gap: 0.15rem;
           user-select: none;
+          transition: all 0.2s ease;
+        }
+        .iconBtn:hover {
+          border-color: var(--accent);
+          box-shadow: 0 2px 8px rgba(15, 118, 110, 0.08);
+          background: #f8fafc;
         }
         .iconBtn .ico {
-          font-size: 1.2rem;
+          font-size: 0.95rem;
           font-weight: 800;
           color: var(--accent);
         }
         .iconBtn small {
-          font-size: 0.7rem;
+          font-size: 0.6rem;
           font-weight: 600;
           color: var(--muted);
+          text-align: center;
         }
         .iconBtn .eid {
-          font-size: 0.62rem;
-          font-weight: 500;
-          max-width: 100%;
-          overflow: hidden;
-          text-overflow: ellipsis;
-          white-space: nowrap;
-          opacity: 0.8;
+          display: none;
         }
         .paletteActions {
-          margin-top: 0.5rem;
+          margin-top: 0.25rem;
           display: flex;
           gap: 0.25rem;
           align-items: center;
@@ -1589,62 +1629,41 @@ export default function LabelWorkbench() {
           align-items: center;
           justify-content: center;
           width: 100%;
-          border: 1px solid var(--border);
-          border-radius: 6px;
-          background: #f8fafc;
-          color: var(--muted);
-          font-size: 0.72rem;
-          font-weight: 700;
-          padding: 0.22rem 0.35rem;
-          text-transform: uppercase;
-          letter-spacing: 0.04em;
-        }
-        .editHint {
-          margin-top: 1rem;
-          margin-bottom: 0;
-          font-size: 0.8rem;
-          color: var(--muted);
-          background: #f8fafc;
           border: 1px dashed var(--border);
-          border-radius: 8px;
-          padding: 0.6rem 0.75rem;
+          border-radius: 6px;
+          background: transparent;
+          color: var(--muted);
+          padding: 0.35rem;
         }
+
         .editModeSwitch {
           display: inline-flex;
           align-items: center;
-          gap: 0.35rem;
-          margin-bottom: 0;
-          user-select: none;
           cursor: pointer;
-          color: var(--muted);
+          user-select: none;
         }
         .editModeSwitch input {
           display: none;
         }
         .editModeSwitch .track {
-          width: 30px;
-          height: 16px;
-          border-radius: 999px;
+          display: inline-block;
+          width: 32px;
+          height: 18px;
           background: #cbd5e1;
+          border-radius: 9999px;
           position: relative;
-          transition: background 0.15s ease;
+          transition: background 0.2s ease;
         }
         .editModeSwitch .thumb {
           position: absolute;
           top: 2px;
           left: 2px;
-          width: 12px;
-          height: 12px;
-          border-radius: 50%;
+          width: 14px;
+          height: 14px;
           background: #fff;
-          box-shadow: 0 1px 2px rgba(0,0,0,0.22);
-          transition: transform 0.15s ease;
-        }
-        .editModeSwitch small {
-          font-size: 0.72rem;
-          font-weight: 700;
-          letter-spacing: 0.02em;
-          text-transform: uppercase;
+          border-radius: 50%;
+          transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+          box-shadow: 0 1px 3px rgba(0,0,0,0.1);
         }
         .editModeSwitch input:checked + .track {
           background: var(--accent);
@@ -1652,17 +1671,7 @@ export default function LabelWorkbench() {
         .editModeSwitch input:checked + .track .thumb {
           transform: translateX(14px);
         }
-        .editModeSwitch.mini .track {
-          width: 24px;
-          height: 12px;
-        }
-        .editModeSwitch.mini .thumb {
-          width: 8px;
-          height: 8px;
-        }
-        .editModeSwitch.mini input:checked + .track .thumb {
-          transform: translateX(12px);
-        }
+        
         .editModeSwitch.mini .track {
           width: 24px;
           height: 12px;
@@ -1923,8 +1932,7 @@ export default function LabelWorkbench() {
           font-weight: 700; 
           text-transform: uppercase; 
           font-size: 0.65rem; 
-          color: #fff; 
-          mix-blend-mode: difference;
+          color: #475569;
           white-space: nowrap;
           pointer-events: none;
           z-index: 30;
@@ -2234,11 +2242,8 @@ export default function LabelWorkbench() {
           border-color: #2563eb;
         }
         .previewObject.barcode {
-          background: repeating-linear-gradient(
-            90deg,
-            rgba(15, 23, 42, 0.95) 0 1px,
-            rgba(255, 255, 255, 0) 1px 3px
-          );
+          background: transparent;
+          border: none;
           color: transparent;
         }
 
@@ -2717,6 +2722,10 @@ export default function LabelWorkbench() {
             </div>
           </div>
         </div>
+      )}
+
+      {showPrintersManagerModal && (
+        <LogicalPrintersManagerModal apiBaseUrl={apiBaseUrl} onClose={() => setShowPrintersManagerModal(false)} />
       )}
     </section>
   );

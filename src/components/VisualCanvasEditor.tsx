@@ -1,8 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { EditorElementDefinition, UpsertEditorElementPayload } from "@/lib/api/client";
-import { createEditorApi } from "@/lib/api/client";
+import { createEditorApi, createLabelsApi } from "@/lib/api/client";
+import type { LogicalPrinterDto } from "@/lib/api/client";
 import JsBarcode from "jsbarcode";
 import QRCode from "qrcode";
+import LogicalPrintersManagerModal from "./LogicalPrintersManagerModal";
 
 type Props = {
   xml: string;
@@ -20,6 +22,14 @@ type Props = {
   };
   onDocNameChange: (name: string) => void;
   onMetadataChange: (meta: any) => void;
+};
+
+type VariableDef = {
+  name: string;
+  type?: string;
+  initial?: string;
+  increment?: string;
+  step?: number;
 };
 
 type Kind = "sae" | "glabels";
@@ -44,12 +54,15 @@ type Obj = {
   lineWidth?: number;
   showText?: boolean;
   textPosition?: "top" | "bottom";
+  fontFamily?: string;
+  fontSize?: number;
 };
 type Parsed = {
   kind: Kind;
   widthPt: number;
   heightPt: number;
   objects: Obj[];
+  variables?: VariableDef[];
   xmlDocument: XMLDocument;
 };
 type DragState = {
@@ -323,11 +336,27 @@ function parse(xml: string): Parsed {
       showText: e.getAttribute("show_text") === "true",
       textPosition: (e.getAttribute("text_pos") as any) || "bottom",
     }));
+    const variablesNode = d.documentElement.getElementsByTagName("variables")[0];
+    const variables: VariableDef[] = [];
+    if (variablesNode) {
+      const vars = Array.from(variablesNode.getElementsByTagName("variable"));
+      for (const v of vars) {
+        variables.push({
+          name: v.getAttribute("name") || "VAR",
+          type: v.getAttribute("type") || "text",
+          initial: v.getAttribute("initial") || "",
+          increment: v.getAttribute("increment") || "never",
+          step: Number(v.getAttribute("step")) || undefined,
+        });
+      }
+    }
+    
     return {
       kind: "sae",
       widthPt: n(rect?.getAttribute("width_pt"), 200),
       heightPt: n(rect?.getAttribute("height_pt"), 100),
       objects,
+      variables,
       xmlDocument: d,
     };
   }
@@ -350,6 +379,8 @@ function parse(xml: string): Parsed {
       groupId: e.getAttribute("group_id") ?? undefined,
       showText: e.getAttribute("text") === "true",
       textPosition: (e.getAttribute("text_pos") as any) || "bottom",
+      fontFamily: e.getAttribute("font_family") || undefined,
+      fontSize: e.getAttribute("font_size") ? n(e.getAttribute("font_size"), 10) : undefined,
     }));
     return {
       kind: "glabels",
@@ -379,6 +410,21 @@ export default function VisualCanvasEditor({
   const [zoomPercent, setZoomPercent] = useState(200);
   const [error, setError] = useState("");
   const [objects, setObjects] = useState<Obj[]>([]);
+
+  // ── Undo / Redo history ───────────────────────────────────────────────────
+  const historyRef = useRef<Obj[][]>([]);
+  const historyIdxRef = useRef<number>(-1);
+  const isUndoingRef = useRef<boolean>(false);
+
+  const pushHistory = useCallback((snapshot: Obj[]) => {
+    if (isUndoingRef.current) return;
+    const h = historyRef.current;
+    // Truncate any redo states beyond current index
+    h.splice(historyIdxRef.current + 1);
+    h.push(snapshot.map(o => ({ ...o })));
+    if (h.length > 60) h.shift();
+    historyIdxRef.current = h.length - 1;
+  }, []);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [drag, setDrag] = useState<DragState | null>(null);
   const [boxSelect, setBoxSelect] = useState<BoxSelectState | null>(null);
@@ -395,7 +441,9 @@ export default function VisualCanvasEditor({
   const [sidebarEditMode, setSidebarEditMode] = useState(false);
   const [leftSidebarWidth, setLeftSidebarWidth] = useState(300);
   const [rightSidebarWidth, setRightSidebarWidth] = useState(300);
+  const lastSentXmlRef = useRef<string>("");
   const [editingElementId, setEditingElementId] = useState("");
+  const [showElementModal, setShowElementModal] = useState(false);
   const [elementForm, setElementForm] = useState<UpsertEditorElementPayload>({
     key: "text",
     name: "Texto",
@@ -408,7 +456,17 @@ export default function VisualCanvasEditor({
   const [guidelines, setGuidelines] = useState<Guideline[]>([]);
   const [activeGuidelineDrag, setActiveGuidelineDrag] = useState<{ id: string; startPosPt: number; hasExitedRuler?: boolean } | null>(null);
   const [rulerOffsets, setRulerOffsets] = useState({ x: 0, y: 0 });
-  const [activeRightTab, setActiveRightTab] = useState<"layers" | "properties" | "preview">("properties");
+  const [activeRightTab, setActiveRightTab] = useState<"layers" | "properties" | "preview" | "variables">("properties");
+  const [variables, setVariables] = useState<VariableDef[]>([]);
+  const [newVarName, setNewVarName] = useState("");
+  const [isPanning, setIsPanning] = useState(false);
+  const [panState, setPanState] = useState<{ startX: number; startY: number; startScrollLeft: number; startScrollTop: number } | null>(null);
+  
+  // Printing state
+  const [showPrintModal, setShowPrintModal] = useState(false);
+  const [printForm, setPrintForm] = useState({ printerName: "", copies: 1, isPrinting: false });
+  const [showPrintersManagerModal, setShowPrintersManagerModal] = useState(false);
+  const [availableLogicalPrinters, setAvailableLogicalPrinters] = useState<LogicalPrinterDto[]>([]);
   
   const boardRef = useRef<HTMLDivElement | null>(null);
   const studioBodyRef = useRef<HTMLDivElement | null>(null);
@@ -423,6 +481,7 @@ export default function VisualCanvasEditor({
   } | null>(null);
   
   const editorApi = useMemo(() => createEditorApi(apiBaseUrl, { timeoutMs }), [apiBaseUrl, timeoutMs]);
+  const labelsApi = useMemo(() => createLabelsApi(apiBaseUrl, { timeoutMs }), [apiBaseUrl, timeoutMs]);
   
   const parseResult = useMemo(() => {
     try { return { parsed: parse(xml), parseError: "" }; } catch (e) { return { parsed: null, parseError: e instanceof Error ? e.message : "Error parseando." }; }
@@ -445,33 +504,91 @@ export default function VisualCanvasEditor({
       return Array.from(new Set([...prev, ...seeded]));
     });
   };
+  const handleShowPrintModal = async () => {
+    setShowPrintModal(true);
+    try {
+      const logPrinters = await labelsApi.getLogicalPrinters();
+      setAvailableLogicalPrinters(logPrinters.filter(p => p.isActive));
+      if (printForm.printerName === "" && logPrinters.some(p => p.isActive)) {
+        setPrintForm(p => ({ ...p, printerName: logPrinters.filter(x => x.isActive)[0].name }));
+      }
+    } catch (e) {
+      console.error("Error loading logical printers:", e);
+    }
+  };
+
+  const executePrint = async () => {
+    if (!printForm.printerName.trim()) {
+      setStatus("Error: Debe especificar el nombre de la impresora.");
+      return;
+    }
+    setPrintForm(p => ({ ...p, isPrinting: true }));
+    try {
+      applyXml(); // Ensure current state is serialized
+      const payload = {
+        xml,
+        printerName: printForm.printerName.trim(),
+        copies: printForm.copies,
+      };
+      const res = await labelsApi.print(payload);
+      setStatus(`Impresión enviada a ${res.printer} exitosamente.`);
+      setShowPrintModal(false);
+    } catch (e: any) {
+      console.error(e);
+      setStatus(`Error al imprimir: ${e.message || "Fallo de conexión"}`);
+    } finally {
+      setPrintForm(p => ({ ...p, isPrinting: false }));
+    }
+  };
 
   useEffect(() => {
     if (!parsed) return;
+    // Don't re-apply if this is exactly what we just sent out
+    if (xml === lastSentXmlRef.current) return;
+    
     setObjects(parsed.objects);
+    setVariables(parsed.variables || []);
     setTemplateWidthPt(parsed.widthPt);
     setTemplateHeightPt(parsed.heightPt);
     setError("");
-  }, [parsed]);
+  }, [parsed, xml]);
 
   useEffect(() => {
     setTransformModeIds([]);
   }, [selectedIds]);
 
-  // Auto-sync objects to XML prop
   useEffect(() => {
     const timer = setTimeout(() => {
       applyXml();
     }, 500);
     return () => clearTimeout(timer);
-  }, [objects, templateWidthPt, templateHeightPt, metadata]);
+  }, [objects, variables, templateWidthPt, templateHeightPt, metadata]);
 
   useEffect(() => {
     const run = async () => {
-      try { await refresh(); } catch (e) { setStatus(e instanceof Error ? e.message : "No se pudo cargar libreria."); }
+      try { await refresh(); } catch (e) {
+        // Ignorar para evitar mostrar mensajes de error tipo Failed to Fetch
+      }
     };
     void run();
   }, [editorApi]);
+
+  useEffect(() => {
+    if (status) {
+      const timer = setTimeout(() => setStatus(""), 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [status]);
+
+  // Push history snapshot when drag starts (captures pre-drag state for undo)
+  const prevDragRef = useRef<DragState | null>(null);
+  useEffect(() => {
+    if (drag !== null && prevDragRef.current === null) {
+      // Drag just started — snapshot current objects
+      pushHistory(objects);
+    }
+    prevDragRef.current = drag;
+  }, [drag]);
 
   useEffect(() => {
     if (!drag && !activeGuidelineDrag) return;
@@ -577,9 +694,22 @@ export default function VisualCanvasEditor({
       return { x: (clientX - r.left) / zoom, y: (clientY - r.top) / zoom };
     };
     const move = (ev: MouseEvent) => {
+      if (panState) {
+        if (!viewportRef.current) return;
+        const dx = ev.clientX - panState.startX;
+        const dy = ev.clientY - panState.startY;
+        viewportRef.current.scrollLeft = panState.startScrollLeft - dx;
+        viewportRef.current.scrollTop = panState.startScrollTop - dy;
+        return;
+      }
       setBoxSelect((prev) => (prev ? { ...prev, currentClientX: ev.clientX, currentClientY: ev.clientY } : prev));
     };
     const up = () => {
+      if (panState) {
+        setIsPanning(false);
+        setPanState(null);
+        return;
+      }
       setBoxSelect((prev) => {
         if (!prev) return null;
         if (Math.abs(prev.currentClientX - prev.startClientX) < 3 && Math.abs(prev.currentClientY - prev.startClientY) < 3) {
@@ -603,7 +733,7 @@ export default function VisualCanvasEditor({
     window.addEventListener("mousemove", move);
     window.addEventListener("mouseup", up);
     return () => { window.removeEventListener("mousemove", move); window.removeEventListener("mouseup", up); };
-  }, [boxSelect, zoom, objects]);
+  }, [boxSelect, zoom, objects, panState]);
 
   useEffect(() => {
     const hide = () => setContextMenu(null);
@@ -618,6 +748,30 @@ export default function VisualCanvasEditor({
       if (event.key === "Escape") { setSelectedIds([]); setContextMenu(null); }
       if (event.key === "Delete" || event.key === "Backspace") {
         if (selectedIds.length > 0) { event.preventDefault(); deleteObjects(selectedIds); }
+      }
+      // Undo: Ctrl+Z
+      if ((event.ctrlKey || event.metaKey) && event.key === "z" && !event.shiftKey) {
+        event.preventDefault();
+        const h = historyRef.current;
+        if (historyIdxRef.current > 0) {
+          historyIdxRef.current--;
+          isUndoingRef.current = true;
+          setObjects(h[historyIdxRef.current].map(o => ({ ...o })));
+          isUndoingRef.current = false;
+          setStatus(`Deshacer (${historyIdxRef.current + 1}/${h.length})`);
+        }
+      }
+      // Redo: Ctrl+Y or Ctrl+Shift+Z
+      if ((event.ctrlKey || event.metaKey) && (event.key === "y" || (event.key === "z" && event.shiftKey))) {
+        event.preventDefault();
+        const h = historyRef.current;
+        if (historyIdxRef.current < h.length - 1) {
+          historyIdxRef.current++;
+          isUndoingRef.current = true;
+          setObjects(h[historyIdxRef.current].map(o => ({ ...o })));
+          isUndoingRef.current = false;
+          setStatus(`Rehacer (${historyIdxRef.current + 1}/${h.length})`);
+        }
       }
     };
     window.addEventListener("keydown", onKeyDown);
@@ -647,6 +801,21 @@ export default function VisualCanvasEditor({
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
     return () => { window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); };
+  }, []);
+
+  useEffect(() => {
+    const handleWheel = (e: WheelEvent) => {
+      if (viewportRef.current && viewportRef.current.contains(e.target as Node)) {
+        if (e.ctrlKey) {
+          e.preventDefault();
+          e.stopPropagation();
+          const delta = e.deltaY > 0 ? -15 : 15;
+          setZoomPercent(p => Math.max(25, Math.min(500, p + delta)));
+        }
+      }
+    };
+    window.addEventListener("wheel", handleWheel, { passive: false });
+    return () => window.removeEventListener("wheel", handleWheel);
   }, []);
 
   useEffect(() => {
@@ -694,6 +863,23 @@ export default function VisualCanvasEditor({
         const c = next.createElement("content"); c.textContent = o.content; e.appendChild(c);
         node.appendChild(e);
       }
+
+      // Handle variables node
+      let varsNode = next.documentElement.getElementsByTagName("variables")[0];
+      if (!varsNode) {
+        varsNode = next.createElement("variables");
+        next.documentElement.appendChild(varsNode);
+      }
+      while (varsNode.firstChild) { varsNode.removeChild(varsNode.firstChild); }
+      for (const v of variables) {
+        const ve = next.createElement("variable");
+        ve.setAttribute("name", v.name);
+        if (v.type) ve.setAttribute("type", v.type);
+        if (v.initial) ve.setAttribute("initial", v.initial);
+        if (v.increment) ve.setAttribute("increment", v.increment);
+        if (v.step !== undefined) ve.setAttribute("step", String(v.step));
+        varsNode.appendChild(ve);
+      }
     } else {
       next.documentElement.setAttribute("version", metadata.version || "4.0");
       const templateNode = next.documentElement.nodeName === "Template" ? next.documentElement : next.documentElement.getElementsByTagName("Template")[0];
@@ -726,7 +912,7 @@ export default function VisualCanvasEditor({
         if (o.lineColor) e.setAttribute("line_color", o.lineColor);
         if (o.lineWidth) e.setAttribute("line_width", pt(o.lineWidth));
         if (o.groupId) e.setAttribute("group_id", o.groupId);
-        if (o.type === "text") { e.setAttribute("color", "0xff"); e.setAttribute("font_family", "Sans"); e.setAttribute("font_size", "10"); e.setAttribute("align", "left"); e.setAttribute("valign", "top"); const p = next.createElement("p"); p.textContent = o.content || "${texto}"; e.appendChild(p); }
+        if (o.type === "text") { e.setAttribute("color", "0xff"); e.setAttribute("font_family", o.fontFamily || "Sans"); e.setAttribute("font_size", String(o.fontSize ?? 10)); e.setAttribute("align", "left"); e.setAttribute("valign", "top"); const p = next.createElement("p"); p.textContent = o.content || "${texto}"; e.appendChild(p); }
         if (o.type === "barcode") { 
           e.setAttribute("style", o.barcodeKind?.toLowerCase() || "code128"); 
           e.setAttribute("data", o.content || "${barcode}"); 
@@ -742,6 +928,7 @@ export default function VisualCanvasEditor({
       }
     }
     const nextXml = new XMLSerializer().serializeToString(next);
+    lastSentXmlRef.current = nextXml;
     onXmlChange(nextXml);
     return nextXml;
   };
@@ -776,6 +963,7 @@ export default function VisualCanvasEditor({
   };
 
   const deleteObjects = (ids: string[]) => {
+    pushHistory(objects);
     setObjects((prev) => prev.filter((o) => !ids.includes(o.id)));
     setSelectedIds([]);
     setContextMenu(null);
@@ -784,6 +972,7 @@ export default function VisualCanvasEditor({
   const duplicateObjects = (ids: string[]) => {
     const toCopy = objects.filter((x) => ids.includes(x.id));
     if (toCopy.length === 0) return;
+    pushHistory(objects);
     const copies = toCopy.map((o) => ({ ...o, id: `o-${Date.now()}-${Math.random()}`, x: o.x + 10, y: o.y + 10, xmlIndex: null }));
     setObjects((prev) => [...prev, ...copies]);
     setSelectedIds(copies.map((c) => c.id));
@@ -816,7 +1005,7 @@ export default function VisualCanvasEditor({
 
   const handleContextMenu = (e: React.MouseEvent, id: string | null) => {
     e.preventDefault();
-    if (id) {
+    if (id && id !== "canvas") {
       if (id.startsWith("group:")) {
         const gid = id.slice(6);
         if (!objects.some(o => selectedIds.includes(o.id) && o.groupId === gid)) {
@@ -825,8 +1014,12 @@ export default function VisualCanvasEditor({
       } else if (!selectedIds.includes(id)) {
         setSelectedIds([id]);
       }
+    } else if (id === "canvas") {
+      if (!selectedIds.length) {
+        // Keep selection empty if clicking on empty canvas
+      }
     }
-    setContextMenu({ x: e.clientX, y: e.clientY, id });
+    setContextMenu({ x: e.clientX, y: e.clientY, id: id === "canvas" ? null : id });
   };
 
   const groupSelected = () => {
@@ -880,6 +1073,7 @@ export default function VisualCanvasEditor({
       await editorApi.saveElement({ ...elementForm, id: editingElementId || undefined, key: elementForm.key.trim(), name: elementForm.name.trim() });
       setEditingElementId("");
       setElementForm({ key: "text", name: "Texto", category: "basic", objectType: "text", defaultWidthPt: 90, defaultHeightPt: 24, defaultContent: "${texto}" });
+      setShowElementModal(false);
       setStatus("Elemento guardado.");
       await refresh();
     } catch (e) { setStatus(e instanceof Error ? e.message : "No se pudo guardar elemento."); }
@@ -895,7 +1089,10 @@ export default function VisualCanvasEditor({
     if (baseElementIds.includes(id)) { setStatus("Los elementos base no se pueden eliminar."); return; }
     try {
       await editorApi.deleteElement(id);
-      if (editingElementId === id) setEditingElementId("");
+      if (editingElementId === id) {
+        setEditingElementId("");
+        setShowElementModal(false);
+      }
       setStatus("Elemento eliminado.");
       await refresh();
     } catch (e) { setStatus(e instanceof Error ? e.message : "No se pudo eliminar elemento."); }
@@ -924,6 +1121,12 @@ export default function VisualCanvasEditor({
   return (
     <section className="editorStudio">
       <header className="studioTopbar">
+        <div style={{ display: 'flex', gap: '0.5rem', padding: '0 1rem' }}>
+          <button type="button" className="primary" onClick={handleShowPrintModal} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.4rem 0.8rem', fontSize: '0.85rem' }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+            Imprimir
+          </button>
+        </div>
         <div className="toolbarGroup">
           <div className="toolbarDivider" />
           <div className="zoomControlContainer">
@@ -961,17 +1164,49 @@ export default function VisualCanvasEditor({
       <div ref={studioBodyRef} className="studioBody" style={{ gridTemplateColumns: `${leftSidebarWidth}px 6px minmax(0, 1fr) 6px ${rightSidebarWidth}px` }}>
         <aside className="leftSidebar">
           <div className="sidebarHeader">
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-              <h3>Elementos</h3>
-              <label className="editModeSwitch"><input type="checkbox" checked={sidebarEditMode} onChange={(e) => setSidebarEditMode(e.target.checked)} /><span className="track"><span className="thumb" /></span><small>Edit</small></label>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.25rem' }}>
+              <h3>Herramientas</h3>
+              <label className="editModeSwitch"><input type="checkbox" checked={sidebarEditMode} onChange={(e) => { setSidebarEditMode(e.target.checked); setShowElementModal(false); }} /><span className="track"><span className="thumb" /></span><small style={{marginLeft: '0.4rem', color: 'var(--muted)', fontWeight: 600}}>Edit</small></label>
             </div>
+            {sidebarEditMode && (
+              <button 
+                type="button" 
+                style={{ width: '100%', marginTop: '0.5rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }} 
+                onClick={() => { setEditingElementId(""); setElementForm({ key: "text", name: "Nuevo", category: "basic", objectType: "text", defaultWidthPt: 90, defaultHeightPt: 24, defaultContent: "${texto}" }); setShowElementModal(true); }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                Nueva
+              </button>
+            )}
           </div>
           <div className="sidebarScroll">
             <div className="paletteGrid">
               {(elements.length > 0 ? elements : TYPES.map(t => ({ id: t, key: t, name: cap(t), category: "basic", objectType: t, defaultWidthPt: 40, defaultHeightPt: 20, defaultContent: t === "text" || t === "barcode" ? t : "" }))).map((el) => (
-                <div key={el.id} className="paletteCard">
-                  <button type="button" className="iconBtn" draggable onDragStart={(e) => { draggedElementRef.current = el as any; e.dataTransfer.setData("application/saelabel-element", JSON.stringify(el)); }} onDragEnd={resetDragState}><span className="ico">{ICON[el.objectType as keyof typeof ICON]}</span><small>{el.name}</small></button>
-                  {sidebarEditMode && <div className="paletteActions">{baseElementIds.includes(el.id) ? <span className="baseTag">Base</span> : <><button type="button" className="mini secondary" onClick={() => editElement(el as any)}>Edit</button><button type="button" className="mini secondary" onClick={() => deleteElement(el.id)}>Del</button></>}</div>}
+                <div key={el.id} className="paletteCard" style={{ position: 'relative' }}>
+                  <button 
+                    type="button" 
+                    className={`iconBtn ${sidebarEditMode ? 'editing' : ''}`} 
+                    draggable={!sidebarEditMode || !baseElementIds.includes(el.id)} 
+                    onDragStart={(e) => { 
+                      draggedElementRef.current = el as any; 
+                      e.dataTransfer.setData("application/saelabel-element", JSON.stringify(el)); 
+                    }} 
+                    onDragEnd={resetDragState}
+                    onClick={() => {
+                      if (sidebarEditMode && !baseElementIds.includes(el.id)) {
+                        editElement(el as any);
+                        setShowElementModal(true);
+                      }
+                    }}
+                  >
+                    <span className="ico">{ICON[el.objectType as keyof typeof ICON]}</span>
+                    <small>{el.name}</small>
+                  </button>
+                  {sidebarEditMode && baseElementIds.includes(el.id) && (
+                    <span className="lockIco" title="Predefinido" style={{ position: 'absolute', top: '4px', right: '4px', color: 'var(--muted)', opacity: 0.6, pointerEvents: 'none' }}>
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                    </span>
+                  )}
                 </div>
               ))}
             </div>
@@ -1004,17 +1239,8 @@ export default function VisualCanvasEditor({
               </div>
             </div>
 
-            {sidebarEditMode && (
-              <div className="elementForm">
-                <h4>{editingElementId ? "Editar" : "Nuevo"}</h4>
-                <input value={elementForm.name} placeholder="Nombre" onChange={(e) => setElementForm(p => ({ ...p, name: e.target.value }))} />
-                <input value={elementForm.key} placeholder="Key" onChange={(e) => setElementForm(p => ({ ...p, key: e.target.value }))} />
-                <div className="sizeRow"><input type="number" value={elementForm.defaultWidthPt} onChange={(e) => setElementForm(p => ({ ...p, defaultWidthPt: Number(e.target.value) || 1 }))} /><input type="number" value={elementForm.defaultHeightPt} onChange={(e) => setElementForm(p => ({ ...p, defaultHeightPt: Number(e.target.value) || 1 }))} /></div>
-                <button type="button" className="mini" onClick={saveElement}>Guardar</button>
-              </div>
-            )}
-            <div className="editHint">
-              <strong>Tip:</strong> Arrastra los elementos al lienzo para agregarlos. Doble clic en un elemento para activar rotacion y sesgado.
+            <div className="editHint" style={{ marginTop: '1rem', fontSize: '0.75rem', color: 'var(--muted)', lineHeight: '1.4', background: '#f8fafc', padding: '0.75rem', borderRadius: '8px', border: '1px solid var(--border)' }}>
+              <strong>Tip:</strong> Arrastra los elementos al lienzo para agregarlos. Doble clic en un elemento para activar rotación y sesgado.
             </div>
           </div>
         </aside>
@@ -1024,17 +1250,17 @@ export default function VisualCanvasEditor({
             <div className="rulerCorner" />
             <Ruler orientation="horizontal" lengthPt={templateWidthPt} zoom={zoom} unit={templateUnit} offsetPt={rulerOffsets.x} onStartGuideline={(e) => startGuideline("horizontal", e)} guidelines={guidelines} />
             <Ruler orientation="vertical" lengthPt={templateHeightPt} zoom={zoom} unit={templateUnit} offsetPt={rulerOffsets.y} onStartGuideline={(e) => startGuideline("vertical", e)} guidelines={guidelines} />
-            <div ref={viewportRef} className="canvasViewport" onMouseDown={(e) => { if (e.target === e.currentTarget) { setContextMenu(null); setBoxSelect({ startClientX: e.clientX, startClientY: e.clientY, currentClientX: e.clientX, currentClientY: e.clientY }); } }} onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "copy"; }} onDrop={(e) => { e.preventDefault(); resetDragState(); }}>
+            <div ref={viewportRef} className="canvasViewport" style={{ cursor: isPanning ? 'grabbing' : 'auto' }} onContextMenu={(e) => { e.preventDefault(); handleContextMenu(e, "canvas"); }} onMouseDown={(e) => { if (e.button === 1 || (e.button === 0 && e.shiftKey)) { e.preventDefault(); setIsPanning(true); setPanState({ startX: e.clientX, startY: e.clientY, startScrollLeft: e.currentTarget.scrollLeft, startScrollTop: e.currentTarget.scrollTop }); return; } if (e.target === e.currentTarget && e.button === 0) { setContextMenu(null); setBoxSelect({ startClientX: e.clientX, startClientY: e.clientY, currentClientX: e.clientX, currentClientY: e.clientY }); } }} onDragOver={(e) => { e.preventDefault(); setIsBoardDragOver(true); e.dataTransfer.dropEffect = "copy"; }} onDragLeave={() => setIsBoardDragOver(false)} onDrop={(e) => { e.preventDefault(); setIsBoardDragOver(false); const raw = e.dataTransfer.getData("application/saelabel-element"); const el = raw ? JSON.parse(raw) : draggedElementRef.current; resetDragState(); if (!el || !boardRef.current) return; const br = boardRef.current.getBoundingClientRect(); const x = (e.clientX - br.left) / zoom; const y = (e.clientY - br.top) / zoom; setObjects(p => [...p, { id: `new-${crypto.randomUUID()}`, xmlIndex: null, type: el.objectType, x, y, w: el.defaultWidthPt, h: el.defaultHeightPt, content: el.defaultContent || "", rotateDeg: 0, scaleX: 1, scaleY: 1, skewX: 0, skewY: 0, fillColor: undefined, lineColor: "#000000", lineWidth: 1 }]); }}>
               {guidelines.map(g => (
                 <div key={g.id} className={`guideline ${g.orientation}`} style={{ [g.orientation === "horizontal" ? "top" : "left"]: (g.posPt + (g.orientation === "horizontal" ? rulerOffsets.y : rulerOffsets.x)) * zoom + 24 }} onMouseDown={(e) => { e.stopPropagation(); setActiveGuidelineDrag({ id: g.id, startPosPt: g.posPt }); }} />
               ))}
               {boxSelect && viewportRef.current && (
                 <div className={`selectionRect ${boxSelect.currentClientX >= boxSelect.startClientX ? "touch" : "contain"}`} style={{ left: Math.min(boxSelect.startClientX, boxSelect.currentClientX) - viewportRef.current.getBoundingClientRect().left, top: Math.min(boxSelect.startClientY, boxSelect.currentClientY) - viewportRef.current.getBoundingClientRect().top, width: Math.abs(boxSelect.currentClientX - boxSelect.startClientX), height: Math.abs(boxSelect.currentClientY - boxSelect.startClientY) }} />
               )}
-              <div ref={boardRef} className={`canvasBoard ${isBoardDragOver ? "dragOver" : ""} ${activeTransformKind ? `transform-${activeTransformKind}` : ""}`} style={{ width: templateWidthPt * zoom, height: templateHeightPt * zoom }} onMouseDown={(e) => { if (e.target === e.currentTarget) { setContextMenu(null); setBoxSelect({ startClientX: e.clientX, startClientY: e.clientY, currentClientX: e.clientX, currentClientY: e.clientY }); } }} onDragOver={(e) => { e.preventDefault(); setIsBoardDragOver(true); }} onDragLeave={() => setIsBoardDragOver(false)} onDrop={(e) => { e.preventDefault(); setIsBoardDragOver(false); const raw = e.dataTransfer.getData("application/saelabel-element"); const el = raw ? JSON.parse(raw) : draggedElementRef.current; if (!el || !boardRef.current) return; const br = boardRef.current.getBoundingClientRect(); const x = (e.clientX - br.left) / zoom; const y = (e.clientY - br.top) / zoom; setObjects(p => [...p, { id: `new-${crypto.randomUUID()}`, xmlIndex: null, type: el.objectType, x, y, w: el.defaultWidthPt, h: el.defaultHeightPt, content: el.defaultContent || "", rotateDeg: 0, scaleX: 1, scaleY: 1, skewX: 0, skewY: 0 }]); }}>
+              <div ref={boardRef} className={`canvasBoard ${isBoardDragOver ? "dragOver" : ""} ${activeTransformKind ? `transform-${activeTransformKind}` : ""}`} style={{ width: templateWidthPt * zoom, height: templateHeightPt * zoom }} onMouseDown={(e) => { if (e.target === e.currentTarget) { setContextMenu(null); setBoxSelect({ startClientX: e.clientX, startClientY: e.clientY, currentClientX: e.clientX, currentClientY: e.clientY }); } }}>
                 {objects.map((o) => (
                   <button key={o.id} type="button" className={`canvasObject ${o.type} ${selectedIds.includes(o.id) ? "selected" : ""}`} style={{ left: o.x * zoom, top: o.y * zoom, width: o.w * zoom, height: o.h * zoom, transform: `rotate(${o.rotateDeg}deg) skew(${o.skewX}deg, ${o.skewY}deg) scale(${o.scaleX}, ${o.scaleY})` }} onMouseDown={(e) => { e.stopPropagation(); const ids = objects.find(x => x.id === o.id)?.groupId ? objects.filter(x => x.groupId === objects.find(x => x.id === o.id)?.groupId).map(x => x.id) : selectedIds.includes(o.id) ? selectedIds : [o.id]; setDrag({ mode: "move", id: o.id, startX: e.clientX, startY: e.clientY, x: o.x, y: o.y, w: o.w, h: o.h, originMap: ids.reduce((a, id) => { const f = objects.find(x => x.id === id); if (f) a[id] = { x: f.x, y: f.y }; return a; }, {} as any) }); }} onContextMenu={(e) => handleContextMenu(e, o.id)} onClick={(e) => { e.stopPropagation(); if (e.ctrlKey) setSelectedIds(p => p.includes(o.id) ? p.filter(id => id !== o.id) : [...p, o.id]); else setSelectedIds([o.id]); }} onDoubleClick={() => setTransformModeIds(p => p.includes(o.id) ? p.filter(x => x !== o.id) : [...p, o.id])}>
-                    {(o.type !== "box" && o.type !== "ellipse") && <span>{o.type}</span>}
+                    {/* Only show type label for non-visual types that have no content renderer */}
                     {o.type === "image" ? (
                       o.content ? <img src={o.content} alt="" style={{ width: "100%", height: "100%", objectFit: "contain", pointerEvents: "none" }} /> : <div className="imgPlaceholder">Imagen</div>
                     ) : o.type === "barcode" ? (
@@ -1066,8 +1292,36 @@ export default function VisualCanvasEditor({
                           vectorEffect="non-scaling-stroke"
                         />
                       </svg>
+                    ) : o.type === "text" ? (
+                      <div style={{
+                        width: "100%",
+                        height: "100%",
+                        overflow: "hidden",
+                        display: "flex",
+                        alignItems: "flex-start",
+                        fontSize: `${Math.max(6, (o.fontSize ?? 10) * zoom)}px`,
+                        lineHeight: 1.2,
+                        color: o.lineColor || "#000",
+                        fontFamily: o.fontFamily || "sans-serif",
+                        fontWeight: "normal",
+                        padding: "1px 2px",
+                        boxSizing: "border-box",
+                        whiteSpace: "pre-wrap",
+                        wordBreak: "break-word",
+                        pointerEvents: "none",
+                        userSelect: "none",
+                      }}>
+                        {o.content || "${texto}"}
+                      </div>
                     ) : (
-                      <div style={{ width: "100%", height: "100%", background: o.fillColor || "transparent", border: o.lineWidth ? `${o.lineWidth * zoom}px solid ${o.lineColor || "black"}` : "none", borderRadius: o.type === "ellipse" ? "50%" : "0", boxSizing: "border-box" }} />
+                      <div style={{ 
+                        width: "100%", 
+                        height: "100%", 
+                        background: o.fillColor || "transparent", 
+                        border: (o.lineWidth ?? 1) > 0 ? `${(o.lineWidth ?? 1) * zoom}px solid ${o.lineColor || "black"}` : "none", 
+                        borderRadius: o.type === "ellipse" ? "50%" : "0", 
+                        boxSizing: "border-box" 
+                      }} />
                     )}
                     {selectedIds.includes(o.id) && HANDLES.map(h => (
                       <span key={h} className={`resizeHandle ${h} ${transformModeIds.includes(o.id) ? "transform" : ""} ${h.length === 2 ? "rotateMode" : "skewMode"}`} onMouseDown={(e) => { e.stopPropagation(); const br = boardRef.current?.getBoundingClientRect(); const cx = (br?.left ?? 0) + (o.x + o.w / 2) * zoom; const cy = (br?.top ?? 0) + (o.y + o.h / 2) * zoom; setDrag({ mode: transformModeIds.includes(o.id) ? "transform" : "resize", id: o.id, handle: h, startX: e.clientX, startY: e.clientY, x: o.x, y: o.y, w: o.w, h: o.h, startRotateDeg: o.rotateDeg, startSkewX: o.skewX, startSkewY: o.skewY, centerClientX: cx, centerClientY: cy, startAngleRad: Math.atan2(e.clientY - cy, e.clientX - cx) }); }} />
@@ -1083,6 +1337,7 @@ export default function VisualCanvasEditor({
           <div className="sidebarTabs">
             <button type="button" className={`sidebarTab ${activeRightTab === "properties" ? "active" : ""}`} onClick={() => setActiveRightTab("properties")}>Propiedades</button>
             <button type="button" className={`sidebarTab ${activeRightTab === "layers" ? "active" : ""}`} onClick={() => setActiveRightTab("layers")}>Capas</button>
+            <button type="button" className={`sidebarTab ${activeRightTab === "variables" ? "active" : ""}`} onClick={() => setActiveRightTab("variables")}>Datos</button>
             <button type="button" className={`sidebarTab ${activeRightTab === "preview" ? "active" : ""}`} onClick={() => setActiveRightTab("preview")}>Vista Previa</button>
           </div>
           <div className="sidebarScroll">
@@ -1111,24 +1366,24 @@ export default function VisualCanvasEditor({
                 </div>
                 <div className="layersToolbar">
                   <button type="button" className="toolBtn" title="Traer al frente" onClick={() => selectedIds[0] && bringToFront(selectedIds[0])}>
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="M21 3l-7 7"/><path d="M3 21l7-7"/></svg>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 3l-6 6"/><path d="M21 3v6"/><path d="M21 3h-6"/><path d="M14 14l-4 4"/><path d="M10 18v-4"/><path d="M10 18h4"/></svg>
                   </button>
                   <button type="button" className="toolBtn" title="Enviar al fondo" onClick={() => selectedIds[0] && sendToBack(selectedIds[0])}>
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 15L3 21"/><path d="M21 3l-6 6"/><path d="M15 3h6v6"/><path d="M9 21H3v-6"/></svg>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 21l6-6"/><path d="M3 21v-6"/><path d="M3 21h6"/><path d="M10 10l4-4"/><path d="M14 6v4"/><path d="M14 6h-4"/></svg>
                   </button>
                   <div className="toolDivider" />
                   <button type="button" className="toolBtn" title="Subir capa" onClick={() => selectedIds[0] && moveLayer(selectedIds[0], "up")}>
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="18 15 12 9 6 15"/></svg>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="18 15 12 9 6 15"/></svg>
                   </button>
                   <button type="button" className="toolBtn" title="Bajar capa" onClick={() => selectedIds[0] && moveLayer(selectedIds[0], "down")}>
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
                   </button>
                   <div className="toolDivider" />
                   <button type="button" className="toolBtn" title="Agrupar" onClick={groupSelected} disabled={selectedIds.length < 2}>
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 9h6v6H9z"/></svg>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 9h6v6H9z"/></svg>
                   </button>
                   <button type="button" className="toolBtn danger" title="Eliminar" onClick={() => deleteObjects(selectedIds)} disabled={selectedIds.length === 0}>
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
                   </button>
                 </div>
               </div>
@@ -1164,17 +1419,27 @@ export default function VisualCanvasEditor({
                         <>
                           <label className="full">Color Relleno
                             <div className="colorInput">
-                              <input type="color" value={sel.fillColor || "#ffffff"} onChange={e => setObjects(p => p.map(x => x.id === sel.id ? { ...x, fillColor: e.target.value } : x))} />
-                              <span>{sel.fillColor || "#ffffff"}</span>
+                              <input type="color" disabled={!sel.fillColor} value={sel.fillColor || "#ffffff"} onChange={e => setObjects(p => p.map(x => x.id === sel.id ? { ...x, fillColor: e.target.value } : x))} />
+                              <span>{sel.fillColor || "Transparente"}</span>
+                              <button className="btnIcon" onClick={() => setObjects(p => p.map(x => x.id === sel.id ? { ...x, fillColor: sel.fillColor ? undefined : "#ffffff" } : x))} title={sel.fillColor ? "Quitar Relleno" : "Poner Relleno"}>
+                                {sel.fillColor ? "×" : "+"}
+                              </button>
                             </div>
                           </label>
                           <label className="full">Color Borde
                             <div className="colorInput">
-                              <input type="color" value={sel.lineColor || "#000000"} onChange={e => setObjects(p => p.map(x => x.id === sel.id ? { ...x, lineColor: e.target.value } : x))} />
-                              <span>{sel.lineColor || "#000000"}</span>
+                              <input type="color" disabled={sel.lineWidth === 0} value={sel.lineColor || "#000000"} onChange={e => setObjects(p => p.map(x => x.id === sel.id ? { ...x, lineColor: e.target.value } : x))} />
+                              <span>{sel.lineWidth === 0 ? "Sin Borde" : (sel.lineColor || "#000000")}</span>
                             </div>
                           </label>
-                          <label className="full">Ancho Borde<input type="number" value={sel.lineWidth || 1} onChange={e => setObjects(p => p.map(x => x.id === sel.id ? { ...x, lineWidth: Number(e.target.value) } : x))} /></label>
+                          <label className="full">Ancho Borde
+                            <div className="colorInput">
+                              <input type="number" min="0" step="0.5" value={sel.lineWidth ?? 1} onChange={e => setObjects(p => p.map(x => x.id === sel.id ? { ...x, lineWidth: Number(e.target.value) } : x))} />
+                              <button className="btnIcon" onClick={() => setObjects(p => p.map(x => x.id === sel.id ? { ...x, lineWidth: (sel.lineWidth || 0) > 0 ? 0 : 1 } : x))} title={sel.lineWidth ? "Quitar Borde" : "Poner Borde"}>
+                                {sel.lineWidth ? "×" : "+"}
+                              </button>
+                            </div>
+                          </label>
                         </>
                       )}
                       {sel.type === "barcode" && (
@@ -1201,22 +1466,139 @@ export default function VisualCanvasEditor({
                     </div>
                   </div>
 
+                  {/* Contenido section — hidden for shape types that need no content */}
+                  {sel.type !== "box" && sel.type !== "ellipse" && sel.type !== "line" && (
                   <div className="inspectorSection">
                     <header className="sectionHeader">
                       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
-                      <span>Contenido</span>
+                      <span>{sel.type === "text" ? "Texto" : sel.type === "image" ? "Imagen" : "Contenido"}</span>
                     </header>
                     <div className="inspectorFields">
+                      {/* Image upload button */}
                       {sel.type === "image" && (
                         <div className="full imgUploadRow">
                           <button type="button" className="mini" onClick={() => { const input = document.createElement("input"); input.type = "file"; input.accept = "image/*"; input.onchange = (e) => { const file = (e.target as HTMLInputElement).files?.[0]; if (file) { const reader = new FileReader(); reader.onload = (loadEv) => { setObjects(p => p.map(x => x.id === sel.id ? { ...x, content: loadEv.target?.result as string } : x)); }; reader.readAsDataURL(file); } }; input.click(); }}>Cargar Imagen</button>
                         </div>
                       )}
-                      <label className="full">Contenido
-                        <textarea rows={3} value={sel.content} onChange={e => setObjects(p => p.map(x => x.id === sel.id ? { ...x, content: e.target.value } : x))} />
-                      </label>
+
+                      {/* Font controls — only for text */}
+                      {sel.type === "text" && (
+                        <>
+                          <label style={{ margin: 0 }}>Fuente
+                            <select value={sel.fontFamily || "sans-serif"} onChange={e => setObjects(p => p.map(x => x.id === sel.id ? { ...x, fontFamily: e.target.value } : x))}>
+                              <option value="sans-serif">Sans-serif</option>
+                              <option value="serif">Serif</option>
+                              <option value="monospace">Monospace</option>
+                              <option value="Arial">Arial</option>
+                              <option value="Helvetica">Helvetica</option>
+                              <option value="Times New Roman">Times New Roman</option>
+                              <option value="Courier New">Courier New</option>
+                              <option value="Georgia">Georgia</option>
+                              <option value="Verdana">Verdana</option>
+                              <option value="Tahoma">Tahoma</option>
+                            </select>
+                          </label>
+                          <label style={{ margin: 0 }}>Tamaño
+                            <input type="number" min={4} max={200} step={1}
+                              value={sel.fontSize ?? 10}
+                              onChange={e => setObjects(p => p.map(x => x.id === sel.id ? { ...x, fontSize: Number(e.target.value) } : x))}
+                            />
+                          </label>
+                        </>
+                      )}
+
+                      {/* Content input — single line for barcode/path/image, small textarea for text */}
+                      {sel.type !== "image" && (
+                        <label className="full" style={{ margin: 0 }}>Contenido
+                          {sel.type === "text" ? (
+                            <textarea rows={2} value={sel.content} onChange={e => setObjects(p => p.map(x => x.id === sel.id ? { ...x, content: e.target.value } : x))} />
+                          ) : (
+                            <input type="text" value={sel.content} onChange={e => setObjects(p => p.map(x => x.id === sel.id ? { ...x, content: e.target.value } : x))} />
+                          )}
+                        </label>
+                      )}
                     </div>
                   </div>
+                  )}
+                </div>
+              </div>
+            )}
+            {activeRightTab === "variables" && (
+              <div className="variablesPanel" style={{ padding: '1rem' }}>
+                <h4 style={{ marginTop: 0, marginBottom: '0.5rem', color: 'var(--text)' }}>Variables Mapeables</h4>
+                
+                <div style={{ background: 'var(--primary-light, #e0f2fe)', border: '1px solid var(--primary, #3b82f6)', color: 'var(--primary-dark, #1e40af)', padding: '0.8rem', borderRadius: '8px', marginBottom: '1.5rem', fontSize: '0.8rem', lineHeight: '1.4' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.4rem', fontWeight: 600 }}>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+                    ¿Cómo insertar variables?
+                  </div>
+                  Para inyectar valores dinámicos en tu etiqueta, primero <strong>selecciona un elemento de Texto o Código de Barras</strong> en el lienzo. Luego, <strong>haz clic en la variable</strong> de la lista de abajo para insertarla.
+                </div>
+
+                <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
+                  <input style={{ flex: 1 }} placeholder="Nombre Variable..." value={newVarName} onChange={e => setNewVarName(e.target.value.toUpperCase().replace(/\s+/g, '_'))} onKeyDown={e => { if (e.key === 'Enter' && newVarName.trim() && !variables.some(x => x.name === newVarName.trim())) { setVariables(p => [...p, { name: newVarName.trim(), type: "text", increment: "never" }]); setNewVarName(''); } }} />
+                  <button type="button" className="mini primary" onClick={() => { if (newVarName.trim() && !variables.some(x => x.name === newVarName.trim())) { setVariables(p => [...p, { name: newVarName.trim(), type: "text", increment: "never" }]); setNewVarName(''); } }}>Añadir</button>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+                  {variables.map(v => {
+                    const isNumeric = ['integer', 'int', 'decimal', 'float', 'double'].includes(v.type || 'text');
+                    return (
+                      <div key={v.name} style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', background: '#ffffff', padding: '0.8rem', borderRadius: '8px', border: '1px solid var(--border)', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                          <code style={{ fontSize: '0.85rem', color: 'var(--primary)', backgroundColor: 'var(--primary-light, #e0f2fe)', padding: '0.2rem 0.5rem', borderRadius: '4px', cursor: 'pointer', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.3rem', transition: 'all 0.2s' }} 
+                            onMouseEnter={e => (e.currentTarget.style.backgroundColor = '#bae6fd')}
+                            onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'var(--primary-light, #e0f2fe)')}
+                            onClick={() => { 
+                              if (sel && (sel.type === 'text' || sel.type === 'barcode')) {
+                                setObjects(p => p.map(o => o.id === sel.id ? { ...o, content: (o.content || '') + `\${${v.name}}` } : o));
+                                setStatus(`Variable \${${v.name}} insertada.`);
+                              } else {
+                                setStatus("Selecciona un elemento de texto o código de barras primero.");
+                              }
+                            }}
+                          >
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                            {`{${v.name}}`}
+                          </code>
+                          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                            <select value={v.type || "text"} onChange={e => setVariables(p => p.map(x => x.name === v.name ? { ...x, type: e.target.value } : x))} style={{ fontSize: '0.85rem', padding: '6px 10px', borderRadius: '4px', border: '1px solid var(--border)', backgroundColor: '#f8fafc', fontWeight: 500, cursor: 'pointer', outline: 'none' }}>
+                              <option value="text">Texto</option>
+                              <option value="integer">Entero</option>
+                              <option value="decimal">Decimal</option>
+                              <option value="date">Fecha</option>
+                            </select>
+                            <button type="button" className="iconBtn mini danger" style={{ border: 'none', background: 'transparent', padding: '4px', cursor: 'pointer', borderRadius: '4px' }}
+                              onMouseEnter={e => (e.currentTarget.style.backgroundColor = '#fee2e2')}
+                              onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'transparent')}
+                              onClick={() => setVariables(p => p.filter(x => x.name !== v.name))}
+                              title="Eliminar variable"
+                            >
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                            </button>
+                          </div>
+                        </div>
+                        {isNumeric && (
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', marginTop: '0.2rem', paddingTop: '0.4rem', borderTop: '1px dashed var(--border)' }}>
+                            <label style={{ margin: 0, fontSize: '0.7rem', color: 'var(--muted)' }}>Valor Inicial (Opcional)
+                              <input style={{ display: 'block', width: '100%', marginTop: '0.2rem', fontSize: '0.75rem', padding: '0.2rem' }} type="text" placeholder="ej. 1" value={v.initial || ''} onChange={e => setVariables(p => p.map(x => x.name === v.name ? { ...x, initial: e.target.value } : x))} />
+                            </label>
+                            <label style={{ margin: 0, fontSize: '0.7rem', color: 'var(--muted)' }}>Incremento
+                              <select style={{ display: 'block', width: '100%', marginTop: '0.2rem', fontSize: '0.75rem', padding: '0.2rem' }} value={v.increment || "never"} onChange={e => setVariables(p => p.map(x => x.name === v.name ? { ...x, increment: e.target.value } : x))}>
+                                <option value="never">Ninguno</option>
+                                <option value="per_item">Por Elemento / Etiqueta</option>
+                                <option value="per_page">Por Página</option>
+                              </select>
+                            </label>
+                            {v.increment && v.increment !== "never" && (
+                              <label style={{ margin: 0, fontSize: '0.7rem', color: 'var(--muted)', gridColumn: 'span 2' }}>Paso / Multiplicador
+                                <input style={{ display: 'block', width: '100%', marginTop: '0.2rem', fontSize: '0.75rem', padding: '0.2rem' }} type="number" placeholder="ej. 1 (Opcional)" value={v.step ?? ''} onChange={e => setVariables(p => p.map(x => x.name === v.name ? { ...x, step: e.target.value ? Number(e.target.value) : undefined } : x))} />
+                              </label>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -1229,36 +1611,197 @@ export default function VisualCanvasEditor({
                         {o.type === "barcode" && <BarcodeImage value={o.content || "123456"} kind={o.barcodeKind} width={o.w} height={o.h} zoom={previewScale} showText={o.showText} textPosition={o.textPosition} />}
                         {o.type === "image" && o.content && <img src={o.content} alt="" style={{ width: "100%", height: "100%", objectFit: "contain" }} />}
                         {o.type === "line" && <div className="lineViz" style={{ width: "100%", height: "100%", background: o.lineColor || "currentColor" }} />}
-                        {(o.type === "box" || o.type === "ellipse") && <div style={{ width: "100%", height: "100%", background: o.fillColor || "transparent", border: o.lineWidth ? `${o.lineWidth * previewScale}px solid ${o.lineColor || "black"}` : "none", borderRadius: o.type === "ellipse" ? "50%" : "0" }} />}
+                        {(o.type === "box" || o.type === "ellipse") && (
+                          <div style={{ 
+                            width: "100%", 
+                            height: "100%", 
+                            background: o.fillColor || "transparent", 
+                            border: (o.lineWidth ?? 1) > 0 ? `${(o.lineWidth ?? 1) * previewScale}px solid ${o.lineColor || "black"}` : "none", 
+                            borderRadius: o.type === "ellipse" ? "50%" : "0" 
+                          }} />
+                        )}
+                        {o.type === "text" && (
+                          <div style={{
+                            width: "100%", height: "100%", overflow: "hidden",
+                            fontSize: `${Math.max(4, (o.fontSize ?? 10) * previewScale)}px`,
+                            lineHeight: 1.2,
+                            color: o.lineColor || "#000",
+                            fontFamily: o.fontFamily || "sans-serif",
+                            padding: "1px 2px",
+                            boxSizing: "border-box",
+                            whiteSpace: "pre-wrap",
+                            wordBreak: "break-word",
+                          }}>
+                            {o.content || "${texto}"}
+                          </div>
+                        )}
+                        {o.type === "path" && (
+                          <svg viewBox="0 0 24 24" preserveAspectRatio="none" style={{ width: "100%", height: "100%" }}>
+                            <path
+                              d={o.content}
+                              fill={o.fillColor || "transparent"}
+                              stroke={o.lineColor || "black"}
+                              strokeWidth={o.lineWidth ? o.lineWidth * (24 / Math.max(o.w, o.h)) : 1}
+                              vectorEffect="non-scaling-stroke"
+                            />
+                          </svg>
+                        )}
                       </div>
                     ))}
                   </div>
                 </div>
               </div>
             )}
-            {status && <p className="status">{status}</p>}
+            {status && (
+              <div style={{
+                position: 'absolute',
+                bottom: '20px',
+                left: '50%',
+                transform: 'translateX(-50%)',
+                background: '#334155',
+                color: 'white',
+                padding: '10px 20px',
+                borderRadius: '8px',
+                fontSize: '0.9rem',
+                boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1)',
+                zIndex: 9999,
+                animation: 'fadein 0.3s, fadeout 0.3s 2.7s'
+              }}>
+                {status}
+              </div>
+            )}
           </div>
         </aside>
       </div>
       {contextMenu && (
         <div className="contextMenu" style={{ left: contextMenu.x, top: contextMenu.y }}>
-          {contextMenu.id ? (
+          {contextMenu.id && contextMenu.id !== "canvas" ? (
             <>
+              <div className="menuItem" onClick={() => { setActiveRightTab("properties"); setContextMenu(null); }}>Propiedades</div>
+              <div className="menuLine" />
               <div className="menuItem" onClick={() => moveLayer(contextMenu.id!, "up")}>Subir capa</div>
               <div className="menuItem" onClick={() => moveLayer(contextMenu.id!, "down")}>Bajar capa</div>
               <div className="menuItem" onClick={() => bringToFront(contextMenu.id!)}>Traer al frente</div>
               <div className="menuItem" onClick={() => sendToBack(contextMenu.id!)}>Enviar al fondo</div>
               <div className="menuLine" />
               <div className="menuItem" onClick={() => duplicateObjects(selectedIds)}>Duplicar</div>
-              <div className="menuItem" onClick={() => groupSelected()}>Agrupar</div>
-              <div className="menuItem" onClick={() => ungroupSelected()}>Desagrupar</div>
+              {selectedIds.length > 1 && <div className="menuItem" onClick={() => groupSelected()}>Agrupar</div>}
+              {objects.some(o => selectedIds.includes(o.id) && o.groupId) && <div className="menuItem" onClick={() => ungroupSelected()}>Desagrupar</div>}
               <div className="menuLine" />
               <div className="menuItem danger" onClick={() => deleteObjects(selectedIds)}>Eliminar</div>
             </>
           ) : (
-            <div className="menuItem" onClick={() => setSelectedIds([])}>Limpiar seleccion</div>
+            <>
+              {selectedIds.length > 0 && (
+                <>
+                  <div className="menuItem" onClick={() => { setActiveRightTab("properties"); setContextMenu(null); }}>Propiedades ({selectedIds.length})</div>
+                  <div className="menuLine" />
+                  <div className="menuItem" onClick={() => duplicateObjects(selectedIds)}>Duplicar seleccionados</div>
+                  {selectedIds.length > 1 && <div className="menuItem" onClick={() => groupSelected()}>Agrupar</div>}
+                  {objects.some(o => selectedIds.includes(o.id) && o.groupId) && <div className="menuItem" onClick={() => ungroupSelected()}>Desagrupar</div>}
+                  <div className="menuLine" />
+                  <div className="menuItem danger" onClick={() => deleteObjects(selectedIds)}>Eliminar seleccionados</div>
+                  <div className="menuLine" />
+                </>
+              )}
+              <div className="menuItem" onClick={() => { setSelectedIds([]); setContextMenu(null); }}>Limpiar seleccion</div>
+            </>
           )}
         </div>
+      )}
+      {showElementModal && (
+        <div className="modalBackdrop" onClick={() => setShowElementModal(false)}>
+          <div className="modalCard" style={{ width: '400px', maxWidth: '90vw' }} onClick={e => e.stopPropagation()}>
+            <h3 style={{ marginTop: 0 }}>{editingElementId ? "Editar Herramienta" : "Nueva Herramienta"}</h3>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginTop: '1rem' }}>
+              <label style={{ display: 'block', margin: 0 }}>Nombre
+                <input style={{ display: 'block', width: '100%', marginTop: '0.4rem' }} value={elementForm.name} placeholder="p.ej. Código de barras principal" onChange={(e) => setElementForm(p => ({ ...p, name: e.target.value }))} />
+              </label>
+              <label style={{ display: 'block', margin: 0 }}>Identificador (Key)
+                <input style={{ display: 'block', width: '100%', marginTop: '0.4rem' }} value={elementForm.key} placeholder="p.ej. barcode_main" onChange={(e) => setElementForm(p => ({ ...p, key: e.target.value }))} />
+              </label>
+              <label style={{ display: 'block', margin: 0 }}>Tipo Base
+                <select style={{ display: 'block', width: '100%', marginTop: '0.4rem' }} value={elementForm.objectType} onChange={(e) => setElementForm(p => ({ ...p, objectType: e.target.value as any }))}>
+                  {TYPES.map(t => <option key={t} value={t}>{cap(t)}</option>)}
+                </select>
+              </label>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                <label style={{ display: 'block', margin: 0 }}>Ancho (pt)
+                  <input style={{ display: 'block', width: '100%', marginTop: '0.4rem' }} type="number" value={elementForm.defaultWidthPt} onChange={(e) => setElementForm(p => ({ ...p, defaultWidthPt: Number(e.target.value) || 1 }))} />
+                </label>
+                <label style={{ display: 'block', margin: 0 }}>Alto (pt)
+                  <input style={{ display: 'block', width: '100%', marginTop: '0.4rem' }} type="number" value={elementForm.defaultHeightPt} onChange={(e) => setElementForm(p => ({ ...p, defaultHeightPt: Number(e.target.value) || 1 }))} />
+                </label>
+              </div>
+              {(elementForm.objectType === 'text' || elementForm.objectType === 'barcode') && (
+                <label style={{ display: 'block', margin: 0 }}>Contenido o Variable
+                  <input style={{ display: 'block', width: '100%', marginTop: '0.4rem' }} value={elementForm.defaultContent || ''} placeholder="Texto o e.g ${PRECIO}" onChange={(e) => setElementForm(p => ({ ...p, defaultContent: e.target.value }))} />
+                </label>
+              )}
+            </div>
+            
+            <div className="modalActions" style={{ marginTop: '2rem', display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', borderTop: '1px solid var(--border)', paddingTop: '1rem' }}>
+              <button type="button" className="secondary" onClick={() => setShowElementModal(false)}>Cancelar</button>
+              {editingElementId && <button type="button" className="danger" onClick={() => deleteElement(editingElementId)}>Eliminar</button>}
+              <button type="button" className="primary" onClick={saveElement}>Guardar</button>
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {showPrintModal && (
+        <div className="modalBackdrop" onClick={() => !printForm.isPrinting && setShowPrintModal(false)} style={{ zIndex: 2000 }}>
+          <div className="modalCard" style={{ width: '400px', maxWidth: '90vw' }} onClick={e => e.stopPropagation()}>
+            <h3 style={{ marginTop: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+              Imprimir Etiqueta
+            </h3>
+            <p style={{ fontSize: '0.85rem', color: 'var(--muted)', marginBottom: '1.5rem' }}>
+              Selecciona una impresora lógica configurada o escribe el nombre físico.
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              <label style={{ display: 'block', margin: 0, fontSize: '0.85rem', fontWeight: 500 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span>Nombre de Impresora</span>
+                  <button type="button" className="toolbarBtn" style={{ padding: '0.2rem 0.4rem', fontSize: '0.75rem' }} onClick={() => setShowPrintersManagerModal(true)}>
+                    Administrar Impresoras
+                  </button>
+                </div>
+                {availableLogicalPrinters.length > 0 ? (
+                  <select style={{ display: 'block', width: '100%', marginTop: '0.4rem', padding: '0.5rem' }} value={printForm.printerName} onChange={(e) => setPrintForm(p => ({ ...p, printerName: e.target.value }))} disabled={printForm.isPrinting}>
+                    <option value="">-- Seleccionar impresora o escribir nombre abajo --</option>
+                    {availableLogicalPrinters.map(p => (
+                      <option key={p.id} value={p.name}>{p.name} (Física: {p.physicalPrinter})</option>
+                    ))}
+                  </select>
+                ) : null}
+                <input style={{ display: 'block', width: '100%', marginTop: availableLogicalPrinters.length > 0 ? '0.4rem' : '0.4rem', padding: '0.5rem' }} value={printForm.printerName} placeholder="Ej. ZDesigner GK420t" onChange={(e) => setPrintForm(p => ({ ...p, printerName: e.target.value }))} disabled={printForm.isPrinting} />
+              </label>
+              
+              <label style={{ display: 'block', margin: 0, fontSize: '0.85rem', fontWeight: 500 }}>Cantidad de Copias
+                <input style={{ display: 'block', width: '100%', marginTop: '0.4rem', padding: '0.5rem' }} type="number" min="1" value={printForm.copies} onChange={(e) => setPrintForm(p => ({ ...p, copies: Math.max(1, Number(e.target.value) || 1) }))} disabled={printForm.isPrinting} />
+              </label>
+            </div>
+            
+            <div className="modalActions" style={{ marginTop: '2rem', display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', borderTop: '1px solid var(--border)', paddingTop: '1rem' }}>
+              <button type="button" className="secondary" onClick={() => setShowPrintModal(false)} disabled={printForm.isPrinting}>Cancelar</button>
+              <button type="button" className="primary" onClick={executePrint} disabled={printForm.isPrinting}>
+                {printForm.isPrinting ? "Imprimiendo..." : "Enviar a Imprimir"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showPrintersManagerModal && (
+        <LogicalPrintersManagerModal apiBaseUrl={apiBaseUrl} onClose={async () => {
+          setShowPrintersManagerModal(false);
+          // Recargar impresoras al cerrar
+          try {
+            const logPrinters = await labelsApi.getLogicalPrinters();
+            setAvailableLogicalPrinters(logPrinters.filter(p => p.isActive));
+          } catch(e){}
+        }} />
       )}
     </section>
   );
