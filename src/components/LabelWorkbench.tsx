@@ -1026,7 +1026,7 @@ export default function LabelWorkbench() {
               </button>
               <div className="menuDivider" />
               <details className="menuSubDropdown" open={activeSubMenu === 'labels'}>
-                <summary className="menuDropdownItem" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }} onClick={(e) => { e.preventDefault(); toggleSubMenu('labels'); }}>
+                <summary className="menuDropdownItem" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', padding: '0.65rem 1.5rem' }} onClick={(e) => { e.preventDefault(); toggleSubMenu('labels'); }}>
                   <span>Etiquetas recientes</span>
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.5, flexShrink: 0 }}><polyline points="9 18 15 12 9 6"/></svg>
                 </summary>
@@ -1040,7 +1040,7 @@ export default function LabelWorkbench() {
                 </div>
               </details>
               <details className="menuSubDropdown" open={activeSubMenu === 'tickets'}>
-                <summary className="menuDropdownItem" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }} onClick={(e) => { e.preventDefault(); toggleSubMenu('tickets'); }}>
+                <summary className="menuDropdownItem" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', padding: '0.65rem 1.5rem' }} onClick={(e) => { e.preventDefault(); toggleSubMenu('tickets'); }}>
                   <span>Tiquetes recientes</span>
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.5, flexShrink: 0 }}><polyline points="9 18 15 12 9 6"/></svg>
                 </summary>
