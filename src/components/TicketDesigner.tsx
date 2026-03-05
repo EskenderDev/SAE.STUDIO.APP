@@ -9,16 +9,16 @@ type Align    = "left" | "center" | "right";
 type FontSize = "normal" | "medium" | "large" | "extra-large";
 
 interface Base { id: string; showIf?: string; }
-interface TextBlock   extends Base { type: "text";       text: string; align: Align; bold: boolean; size: FontSize; }
+interface TextBlock   extends Base { type: "text";       text: string; align: Align; bold: boolean; extraBold?: boolean; size: FontSize; }
 interface SepBlock    extends Base { type: "separator";  char: string; }
-interface TotalBlock  extends Base { type: "total";      label: string; value: string; bold: boolean; }
+interface TotalBlock  extends Base { type: "total";      label: string; value: string; bold: boolean; extraBold?: boolean; }
 interface QrBlock     extends Base { type: "qr";         content: string; align: Align; qrSize: number; }
 interface FeedBlock   extends Base { type: "feed";       lines: number; }
 interface ActionBlock extends Base { type: "cut" | "beep" | "open-drawer"; }
-interface IfBlock     extends Base { type: "if";         expr: string; text: string; bold: boolean; align: Align; }
+interface IfBlock     extends Base { type: "if";         expr: string; text: string; bold: boolean; extraBold?: boolean; align: Align; }
 interface IfelseBlock extends Base { type: "ifelse";     expr: string; thenText: string; elseText: string; align: Align; }
 
-export interface EachColumn { field: string; label: string; width: "auto" | number; align: Align; showIf?: string; bold?: boolean; size?: FontSize; }
+export interface EachColumn { field: string; label: string; width: "auto" | number; align: Align; showIf?: string; bold?: boolean; extraBold?: boolean; size?: FontSize; }
 interface EachBlock   extends Base { type: "each";       listVar: string; columns: EachColumn[]; showHeader: boolean; childField?: string; childIndentCol?: number; }
 
 type Block = TextBlock | SepBlock | EachBlock | TotalBlock | QrBlock | FeedBlock | ActionBlock | IfBlock | IfelseBlock;
@@ -54,15 +54,15 @@ function xmlToBlocks(xml: string): { blocks: Block[]; width: number; printers: s
       const sif = si(el, "showIf") || undefined;
       const parseAl = (s: string) => (["left","center","right"].includes(s) ? s : "left") as Align;
 
-      if      (t === "text")       blocks.push({ id:uid(), type:"text",      text:el.textContent??"", align:parseAl(si(el,"align")), bold:si(el,"bold")==="true", size:(si(el,"size")||"normal") as FontSize, showIf:sif });
+      if      (t === "text")       blocks.push({ id:uid(), type:"text",      text:el.textContent??"", align:parseAl(si(el,"align")), bold:si(el,"bold")==="true", extraBold:si(el,"extraBold")==="true", size:(si(el,"size")||"normal") as FontSize, showIf:sif });
       else if (t === "separator")  blocks.push({ id:uid(), type:"separator", char:si(el,"char")||"-", showIf:sif });
-      else if (t === "total")      blocks.push({ id:uid(), type:"total",     label:si(el,"label")||"TOTAL", value:si(el,"value")||"0", bold:si(el,"bold")==="true", showIf:sif });
+      else if (t === "total")      blocks.push({ id:uid(), type:"total",     label:si(el,"label")||"TOTAL", value:si(el,"value")||"0", bold:si(el,"bold")==="true", extraBold:si(el,"extraBold")==="true", showIf:sif });
       else if (t === "qr")         blocks.push({ id:uid(), type:"qr",        content:el.textContent??"", align:(si(el,"align")||"center") as Align, qrSize:parseInt(si(el,"size")||"80"), showIf:sif });
       else if (t === "feed")       blocks.push({ id:uid(), type:"feed",      lines:parseInt(si(el,"lines")||"1"), showIf:sif });
       else if (t === "cut")        blocks.push({ id:uid(), type:"cut" });
       else if (t === "beep")       blocks.push({ id:uid(), type:"beep" });
       else if (t === "open-drawer")blocks.push({ id:uid(), type:"open-drawer" });
-      else if (t === "if")         blocks.push({ id:uid(), type:"if", expr:si(el,"expr"), text:el.textContent??"", bold:si(el,"bold")==="true", align:(si(el,"align")||"left") as Align, showIf:sif });
+      else if (t === "if")         blocks.push({ id:uid(), type:"if", expr:si(el,"expr"), text:el.textContent??"", bold:si(el,"bold")==="true", extraBold:si(el,"extraBold")==="true", align:(si(el,"align")||"left") as Align, showIf:sif });
       else if (t === "ifelse") {
         const then_ = el.querySelector("then")?.textContent ?? "";
         const else_ = el.querySelector("else")?.textContent ?? "";
@@ -76,6 +76,7 @@ function xmlToBlocks(xml: string): { blocks: Block[]; width: number; printers: s
           align: (si(c,"align")||"left") as Align,
           showIf: si(c,"showIf") || undefined,
           bold: si(c,"bold") === "true",
+          extraBold: si(c,"extraBold") === "true",
           size: (si(c,"size") || "normal") as FontSize,
         }));
         blocks.push({ 
@@ -100,22 +101,23 @@ function blocksToXml(blocks: Block[], width: number, printers: string): string {
   for (const b of blocks) {
     const si = b.showIf ? ` showIf="${esc(b.showIf)}"` : "";
     switch (b.type) {
-      case "text":        lines.push(`    <text align="${b.align}" bold="${b.bold}" size="${b.size}"${si}>${esc(b.text)}</text>`); break;
+      case "text":        lines.push(`    <text align="${b.align}" bold="${b.bold}" extraBold="${b.extraBold||false}" size="${b.size}"${si}>${esc(b.text)}</text>`); break;
       case "separator":   lines.push(`    <separator char="${esc(b.char)}"${si}/>`); break;
-      case "total":       lines.push(`    <total label="${esc(b.label)}" value="${esc(b.value)}" bold="${b.bold}"${si}/>`); break;
+      case "total":       lines.push(`    <total label="${esc(b.label)}" value="${esc(b.value)}" bold="${b.bold}" extraBold="${b.extraBold||false}"${si}/>`); break;
       case "qr":          lines.push(`    <qr align="${b.align}" size="${b.qrSize}"${si}>${esc(b.content)}</qr>`); break;
       case "feed":        lines.push(`    <feed lines="${b.lines}"${si}/>`); break;
       case "cut":         lines.push(`    <cut/>`); break;
       case "beep":        lines.push(`    <beep/>`); break;
       case "open-drawer": lines.push(`    <open-drawer/>`); break;
-      case "if":          lines.push(`    <if expr="${esc(b.expr)}" align="${b.align}" bold="${b.bold}"${si}>${esc(b.text)}</if>`); break;
+      case "if":          lines.push(`    <if expr="${esc(b.expr)}" align="${b.align}" bold="${b.bold}" extraBold="${b.extraBold||false}"${si}>${esc(b.text)}</if>`); break;
       case "ifelse":      lines.push(`    <ifelse expr="${esc(b.expr)}" align="${b.align}"${si}>\n      <then>${esc(b.thenText)}</then>\n      <else>${esc(b.elseText)}</else>\n    </ifelse>`); break;
       case "each": {
         const colXml = b.columns.map(c => {
           const cSi = c.showIf ? ` showIf="${esc(c.showIf)}"` : "";
           const cBold = c.bold ? ` bold="true"` : "";
+          const cExtraBold = c.extraBold ? ` extraBold="true"` : "";
           const cSize = c.size && c.size !== "normal" ? ` size="${c.size}"` : "";
-          return `      <column field="${esc(c.field)}" label="${esc(c.label)}" width="${c.width}" align="${c.align}"${cSi}${cBold}${cSize}/>`;
+          return `      <column field="${esc(c.field)}" label="${esc(c.label)}" width="${c.width}" align="${c.align}"${cSi}${cBold}${cExtraBold}${cSize}/>`;
         }).join("\n");
         const child = b.childField ? ` childField="${esc(b.childField)}"` : "";
         const indent = b.childIndentCol ? ` childIndentCol="${b.childIndentCol}"` : "";
@@ -250,18 +252,43 @@ function extractVars(blocks: Block[]): string[] {
   return Array.from(vars).filter(v => !v.startsWith("!"));
 }
 
-function renderTextWithStyles(text: string, bold: boolean, size: FontSize): React.ReactNode {
-  const parts = text.split(/(\*\*.*?\*\*)/g);
-  return parts.map((part, i) => {
-    if (part.startsWith('**') && part.endsWith('**')) {
-      return <strong key={i} style={{ fontSize: size === 'normal' ? 'inherit' : (size === 'medium' ? '1.1em' : (size === 'large' ? '1.3em' : '1.5em')) }}>{part.slice(2, -2)}</strong>;
-    }
-    return <span key={i} style={{ 
-      fontWeight: bold ? 700 : 400,
-      fontSize: size === 'normal' ? 'inherit' : (size === 'medium' ? '1.1em' : (size === 'large' ? '1.3em' : '1.5em')),
-      textTransform: size === 'extra-large' ? 'uppercase' : 'none'
-    }}>{part}</span>;
-  });
+function renderTextWithStyles(text: string, bold: boolean, size: FontSize, extraBold: boolean = false): React.ReactNode {
+  if (!text) return null;
+  
+  const pattern = /(####[^#]+####|###[^#]+###|##[^#]+##|\*\*\*[^*]+\*\*\*|\*\*[^*]+\*\*)/;
+  const match = text.match(pattern);
+  
+  if (!match) {
+    return (
+      <span style={{ 
+        fontWeight: (bold || extraBold) ? (extraBold ? 900 : 700) : 400,
+        textShadow: extraBold ? "0.5px 0px 0px currentColor, -0.5px 0px 0px currentColor" : "none",
+        fontSize: size === 'normal' ? 'inherit' : (size === 'medium' ? '1.1rem' : (size === 'large' ? '1.3rem' : '1.5rem')),
+        textTransform: size === 'extra-large' ? 'uppercase' : 'none'
+      }}>
+        {text}
+      </span>
+    );
+  }
+
+  const tag = match[0];
+  const prefix = text.slice(0, match.index);
+  const suffix = text.slice(match.index! + tag.length);
+
+  let content: React.ReactNode = null;
+  if (tag.startsWith('####')) content = renderTextWithStyles(tag.slice(4, -4), bold, 'extra-large', extraBold);
+  else if (tag.startsWith('###')) content = renderTextWithStyles(tag.slice(3, -3), bold, 'large', extraBold);
+  else if (tag.startsWith('##')) content = renderTextWithStyles(tag.slice(2, -2), bold, 'medium', extraBold);
+  else if (tag.startsWith('***')) content = renderTextWithStyles(tag.slice(3, -3), true, size, true);
+  else if (tag.startsWith('**')) content = renderTextWithStyles(tag.slice(2, -2), true, size, extraBold);
+
+  return (
+    <>
+      {prefix && renderTextWithStyles(prefix, bold, size, extraBold)}
+      {content}
+      {suffix && renderTextWithStyles(suffix, bold, size, extraBold)}
+    </>
+  );
 }
 
 function BlockPreviewItem({ block, cols }: { block: Block; cols: number }) {
@@ -273,12 +300,16 @@ function BlockPreviewItem({ block, cols }: { block: Block; cols: number }) {
   switch (block.type) {
     case "text": {
       const txt = parseCommands(block.text);
-      return <span style={{ ...PREVIEW_ROW, textAlign: block.align }}>{renderTextWithStyles(txt, block.bold, block.size)}</span>;
+      return <span style={{ ...PREVIEW_ROW, textAlign: block.align }}>{renderTextWithStyles(txt, block.bold, block.size, block.extraBold)}</span>;
     }
     case "separator": return <span style={PREVIEW_ROW}>{block.char.repeat(cols)}</span>;
     case "total": {
-      const v = block.value, l = block.label.substring(0, cols-v.length-1);
-      return <span style={PREVIEW_ROW}>{(block.bold?"*":"")+l.padEnd(cols-v.length)+v+(block.bold?"*":"")}</span>;
+      return (
+        <div style={{ ...PREVIEW_ROW, display: 'flex', justifyContent: 'space-between' }}>
+          <span>{renderTextWithStyles(block.label, block.bold, "normal", block.extraBold)}:</span>
+          <span>{renderTextWithStyles(block.value, block.bold, "normal", block.extraBold)}</span>
+        </div>
+      );
     }
     case "qr": {
       const sz = Math.min(block.qrSize, 120);
@@ -293,15 +324,21 @@ function BlockPreviewItem({ block, cols }: { block: Block; cols: number }) {
       return (
         <div style={{ border:"1px dashed #0ea5e9", borderRadius:3, padding:"2px 4px", marginBlock:1 }}>
           {CHIP(`IF: ${block.expr}`, "#0ea5e9")}
-          <span style={PREVIEW_ROW}>{padStr(block.bold?`*${block.text}*`:block.text, cols, block.align)}</span>
+          <div style={{ ...PREVIEW_ROW, textAlign: block.align }}>
+            {renderTextWithStyles(block.text, block.bold, "normal", block.extraBold)}
+          </div>
         </div>
       );
     case "ifelse":
       return (
         <div style={{ border:"1px dashed #0ea5e9", borderRadius:3, padding:"2px 6px", marginBlock:1 }}>
           {CHIP(`IF/ELSE: ${block.expr}`, "#0ea5e9")}
-          <span style={{ ...PREVIEW_ROW, color:"#16a34a" }}>✓ {padStr(block.thenText,cols,block.align)}</span>
-          <span style={{ ...PREVIEW_ROW, color:"#dc2626" }}>✗ {padStr(block.elseText,cols,block.align)}</span>
+          <div style={{ ...PREVIEW_ROW, color:"#16a34a", textAlign: block.align }}>
+            ✓ {renderTextWithStyles(block.thenText, false, "normal")}
+          </div>
+          <div style={{ ...PREVIEW_ROW, color:"#dc2626", textAlign: block.align }}>
+            ✗ {renderTextWithStyles(block.elseText, false, "normal")}
+          </div>
         </div>
       );
     case "each": {
@@ -327,10 +364,11 @@ function BlockPreviewItem({ block, cols }: { block: Block; cols: number }) {
               <div key={i} style={{ 
                 width: `${(colWidths[i] / cols) * 100}%`, 
                 textAlign: c.align,
-                fontWeight: c.bold ? 700 : 400,
+                fontWeight: c.extraBold ? 900 : (c.bold ? 700 : 400),
+                textShadow: c.extraBold ? "0.5px 0px 0px currentColor, -0.5px 0px 0px currentColor" : "none",
                 fontSize: c.size === 'large' ? '1rem' : (c.size === 'medium' ? '0.85rem' : '0.75rem')
               }}>
-                {renderTextWithStyles(c.field === "QTY" ? "1" : (c.field === "DESC" ? "**Item** Demo" : "0.00"), c.bold||false, c.size||"normal")}
+                {renderTextWithStyles(c.field === "QTY" ? "1" : (c.field === "DESC" ? "**Item** Demo" : "0.00"), c.bold||false, c.size||"normal", c.extraBold||false)}
               </div>
             ))}
           </div>
@@ -439,13 +477,29 @@ function ColRow({ col, idx, onChange, onDelete, onDragStart, onDragOver, onDrop 
             {["normal","medium","large"].map(o=><option key={o}>{o}</option>)}
           </select>
         </div>
-        <div style={{ gridColumn: "1 / -1" }}>
-          <label className="toggleLabel" style={{ padding: "0.25rem 0" }}>
+        <div style={{ gridColumn: "1 / -1", display: "flex", gap: "1rem" }}>
+          <label className="toggleLabel" style={{ padding: "0.25rem 0", flex: 1 }}>
             <span style={{ fontSize: '0.75rem', fontWeight: 600 }}>Negrita</span>
             <div style={{ position: 'relative' }}>
               <input type="checkbox" className="toggleInput" id={`col-bold-${idx}`}
-                checked={col.bold||false} onChange={e=>u({bold:e.target.checked})}/>
-              <label htmlFor={`col-bold-${idx}`} className="toggleTrack">
+                checked={col.bold||false} onChange={e=>{
+                  const v = e.target.checked;
+                  u({bold: v, extraBold: v ? false : col.extraBold});
+                }}/>
+              <label htmlFor={`col-bold-${idx}`} className="toggleTrack" data-checked={col.bold}>
+                <div className="toggleThumb"></div>
+              </label>
+            </div>
+          </label>
+          <label className="toggleLabel" style={{ padding: "0.25rem 0", flex: 1 }}>
+            <span style={{ fontSize: '0.75rem', fontWeight: 600 }}>Negrita Intensa</span>
+            <div style={{ position: 'relative' }}>
+              <input type="checkbox" className="toggleInput" id={`col-ebold-${idx}`}
+                checked={col.extraBold||false} onChange={e=>{
+                  const v = e.target.checked;
+                  u({extraBold: v, bold: v ? false : col.bold});
+                }}/>
+              <label htmlFor={`col-ebold-${idx}`} className="toggleTrack" data-checked={col.extraBold}>
                 <div className="toggleThumb"></div>
               </label>
             </div>
@@ -514,7 +568,7 @@ function PropsPanel({ block, onChange }: { block: Block; onChange: (b: Block) =>
       <div style={{ position: 'relative' }}>
         <input type="checkbox" className="toggleInput" id={`prop-chk-${lbl}`}
           checked={val} onChange={e=>onChange(s(e.target.checked))}/>
-        <label htmlFor={`prop-chk-${lbl}`} className="toggleTrack">
+        <label htmlFor={`prop-chk-${lbl}`} className="toggleTrack" data-checked={val}>
           <div className="toggleThumb"></div>
         </label>
       </div>
@@ -532,34 +586,50 @@ function PropsPanel({ block, onChange }: { block: Block; onChange: (b: Block) =>
   );
 
   switch (block.type) {
-    case "text": return (<div style={{ display:"grid", gap:"0.35rem" }}>
-      {f("Contenido",  inp(block.text,  v=>({...block,text:v}),  "Texto o ${VAR}"))}
-      {f("Alineación", sel(block.align, v=>({...block,align:v as Align}),  ["left","center","right"]))}
-      {f("Tamaño",     sel(block.size,  v=>({...block,size:v as FontSize}), ["normal","medium","large","extra-large"]))}
-      {chk(block.bold, v=>({...block,bold:v}), "Negrita")}
-      <ShowIfField/>
-    </div>);
+      case "text": return (
+        <div style={{ display:"grid", gap:"0.4rem" }}>
+          {f("Contenido", <textarea style={{ ...I, height:60 }} value={block.text} onChange={e=>onChange({...block,text:e.target.value})} />)}
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0.4rem" }}>
+            {f("Alineación", sel(block.align, v=>({...block, align:v as Align}), ["left","center","right"]))}
+            {f("Tamaño", sel(block.size, v=>({...block, size:v as FontSize}), ["normal","medium","large","extra-large"]))}
+          </div>
+          <div style={{ display: "flex", gap: "1rem" }}>
+            {chk(block.bold, v=>({...block, bold:v, extraBold: v ? false : block.extraBold}), "Negrita")}
+            {chk(block.extraBold||false, v=>({...block, extraBold:v, bold: v ? false : block.bold}), "Negrita Intensa")}
+          </div>
+          <ShowIfField/>
+        </div>
+      );
     case "separator": return (<div>{f("Carácter", inp(block.char, v=>({...block,char:v}), "-"))}<ShowIfField/></div>);
-    case "total": return (<div style={{ display:"grid", gap:"0.35rem" }}>
-      {f("Etiqueta", inp(block.label, v=>({...block,label:v}), "TOTAL"))}
-      {f("Valor",    inp(block.value, v=>({...block,value:v}), "${TOTAL}"))}
-      {chk(block.bold, v=>({...block,bold:v}), "Negrita")}
-      <ShowIfField/>
-    </div>);
+      case "total": return (
+        <div style={{ display:"grid", gap:"0.4rem" }}>
+          {f("Etiqueta", inp(block.label, v=>({...block, label:v}), "TOTAL"))}
+          {f("Valor",    inp(block.value, v=>({...block, value:v}), "${TOTAL}"))}
+          <div style={{ display: "flex", gap: "1rem" }}>
+            {chk(block.bold, v=>({...block, bold:v, extraBold: v ? false : block.extraBold}), "Negrita")}
+            {chk(block.extraBold||false, v=>({...block, extraBold:v, bold: v ? false : block.bold}), "Negrita Intensa")}
+          </div>
+          <ShowIfField/>
+        </div>
+      );
     case "qr": return (<div style={{ display:"grid", gap:"0.35rem" }}>
       {f("Contenido",  inp(block.content, v=>({...block,content:v}), "${URL}"))}
       {f("Alineación", sel(block.align,   v=>({...block,align:v as Align}), ["left","center","right"]))}
       {f("Tamaño px",  <input type="number" style={{ ...I, fontFamily:"system-ui" }} min={32} max={200} step={8} value={block.qrSize} onChange={e=>onChange({...block,qrSize:parseInt(e.target.value)||80})}/>)}
       <ShowIfField/>
     </div>);
-    case "feed": return (<div>{f("Líneas", <input type="number" style={{ ...I, fontFamily:"system-ui" }} min={1} max={10} value={block.lines} onChange={e=>onChange({...block,lines:parseInt(e.target.value)||1})}/>)}<ShowIfField/></div>);
-    case "if": return (<div style={{ display:"grid", gap:"0.35rem" }}>
-      {f("Condición", inp(block.expr, v=>({...block,expr:v}), "${VAR}"))}
-      {f("Texto si verdadero", inp(block.text, v=>({...block,text:v}), "Texto o ${VAR}"))}
-      {f("Alineación", sel(block.align, v=>({...block,align:v as Align}), ["left","center","right"]))}
-      {chk(block.bold, v=>({...block,bold:v}), "Negrita")}
-      <ShowIfField/>
-    </div>);
+    case "if": return (
+        <div style={{ display:"grid", gap:"0.4rem" }}>
+          {f("Condición", inp(block.expr, v=>({...block, expr:v}), "total > 100"))}
+          {f("Texto (si cumple)", inp(block.text, v=>({...block, text:v})))}
+          {f("Alineación", sel(block.align, v=>({...block, align:v as Align}), ["left","center","right"]))}
+          <div style={{ display: "flex", gap: "1rem" }}>
+            {chk(block.bold, v=>({...block, bold:v, extraBold: v ? false : block.extraBold}), "Negrita")}
+            {chk(block.extraBold||false, v=>({...block, extraBold:v, bold: v ? false : block.bold}), "Negrita Intensa")}
+          </div>
+          <ShowIfField/>
+        </div>
+      );
     case "ifelse": return (<div style={{ display:"grid", gap:"0.35rem" }}>
       {f("Condición", inp(block.expr, v=>({...block,expr:v}), "${VAR}"))}
       {f("Si verdadero (then)", inp(block.thenText, v=>({...block,thenText:v}), "Texto verdadero"))}
@@ -587,9 +657,7 @@ function PropsPanel({ block, onChange }: { block: Block; onChange: (b: Block) =>
              <input type="number" min={0} max={Math.max(0, block.columns.length-1)} style={I} value={block.childIndentCol || 0} onChange={e=>update({childIndentCol:parseInt(e.target.value)||0})}/>
              <span style={{ fontSize:"0.65rem", color:"#94a3b8" }}>La indentación será relativa a esta columna</span>
           </label>
-          <label style={{ display:"flex",gap:"0.4rem",alignItems:"center",fontSize:"0.79rem",cursor:"pointer" }}>
-            <input type="checkbox" checked={block.showHeader} onChange={e=>update({showHeader:e.target.checked})}/> Mostrar encabezados
-          </label>
+          {chk(block.showHeader, v => ({ ...block, showHeader: v } as EachBlock), "Mostrar encabezados")}
           <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginTop:"0.3rem" }}>
             <span style={{ fontSize:"0.72rem", fontWeight:700, color:"var(--muted,#64748b)", textTransform:"uppercase", letterSpacing:"0.06em" }}>Columnas</span>
             <button onClick={addCol} style={{ ...MINI, color:"var(--primary,#16a34a)", borderColor:"var(--primary,#16a34a)", fontWeight:600 }}>+ Agregar</button>
@@ -962,24 +1030,13 @@ export default function TicketDesigner({ initialXml, onUpdate, apiBaseUrl }: Tic
                 <div style={{ display:"grid", gap:"1.2rem" }}>
                   {detectedVars.length > 0 && (
                     <div>
-                      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:"0.8rem" }}>
-                        <span style={{ fontWeight:700, fontSize:"0.85rem", color:"#64748b" }}>Variables Simples</span>
-                        <button onClick={() => {
-                          const val = window.prompt("Valor para todos los campos:");
-                          if (val !== null) {
-                            const next = { ...printData };
-                            detectedVars.forEach(v => next[v] = val);
-                            setPrintData(next);
-                          }
-                        }} style={{ ...MINI, fontSize:"0.65rem" }}>Rellenar Todo</button>
-                      </div>
                       <div style={{ display:"grid", gridTemplateColumns:"1fr", gap:"1rem", marginTop:"0.8rem" }}>
                         {detectedVars.map(v => (
                           <label key={v} style={{ display:"flex", flexDirection:"column", gap:"0.5rem", fontSize:"0.8rem", fontWeight:600 }}>
                             {v}:
                             <input type="text" value={printData[v] || ""} 
                               onChange={e => setPrintData({...printData, [v]: e.target.value})}
-                              style={{ padding:"0.5rem", borderRadius:6, border:"1px solid #cbd5e1" }} />
+                              style={{ padding:"0.5rem", borderRadius:6, border:"1px solid var(--border)", background: "var(--bg-input, transparent)", color: "var(--text)" }} />
                           </label>
                         ))}
                       </div>
@@ -987,17 +1044,17 @@ export default function TicketDesigner({ initialXml, onUpdate, apiBaseUrl }: Tic
                   )}
 
                   {listVars.map(lv => (
-                    <div key={lv} style={{ border:"1px solid #e2e8f0", borderRadius:8, padding:"1rem" }}>
+                    <div key={lv} style={{ border:"1px solid var(--border)", borderRadius:8, padding:"1rem" }}>
                       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:"0.8rem" }}>
                         <span style={{ fontWeight:700, fontSize:"0.85rem" }}>Filas para {lv}</span>
                         <button onClick={() => setPrintDataList([...printDataList, {}])}
-                          style={{ fontSize:"0.75rem", padding:"0.3rem 0.6rem", background:"#f1f5f9", border:"1px solid #e2e8f0", borderRadius:4, cursor:"pointer" }}>+ Agregar Fila</button>
+                          style={{ fontSize:"0.75rem", fontWeight:600, padding:"0.4rem 0.8rem", background:"var(--accent)", color:"#fff", border:"none", borderRadius:6, cursor:"pointer", boxShadow: "0 2px 4px rgba(0,0,0,0.1)" }}>+ Agregar Fila</button>
                       </div>
                       <div style={{ overflowX:"auto" }}>
                         <table style={{ width:"100%", borderCollapse:"collapse", fontSize:"0.75rem" }}>
                           <thead>
-                            <tr style={{ background:"#f8fafc" }}>
-                              <th style={{ padding:6, border:"1px solid #e2e8f0" }}>#</th>
+                            <tr style={{ background:"var(--bg-tabs, #f8fafc)" }}>
+                              <th style={{ padding:6, border:"1px solid var(--border-strong, #94a3b8)" }}>#</th>
                               {(() => {
                                 const fields = blocks.filter(b=>b.type==="each" && b.listVar===lv)
                                   .flatMap(b => {
@@ -1008,16 +1065,16 @@ export default function TicketDesigner({ initialXml, onUpdate, apiBaseUrl }: Tic
                                   })
                                   .filter((v,i,a)=>a.indexOf(v)===i);
                                 return fields.map(f => (
-                                  <th key={f} style={{ padding:6, border:"1px solid #e2e8f0" }}>{f}</th>
+                                  <th key={f} style={{ padding:6, border:"1px solid var(--border-strong, #94a3b8)" }}>{f}</th>
                                 ));
                               })()}
-                              <th style={{ width:30, border:"1px solid #e2e8f0" }}></th>
+                              <th style={{ width:30, border:"1px solid var(--border-strong, #94a3b8)" }}></th>
                             </tr>
                           </thead>
                           <tbody>
                             {printDataList.map((row, idx) => (
                               <tr key={idx}>
-                                <td style={{ padding:6, border:"1px solid #e2e8f0", textAlign:"center" }}>{idx+1}</td>
+                                <td style={{ padding:6, border:"1px solid var(--border-strong, #94a3b8)", textAlign:"center" }}>{idx+1}</td>
                                 {(() => {
                                   const fields = blocks.filter(b=>b.type==="each" && b.listVar===lv)
                                     .flatMap(b => {
@@ -1028,18 +1085,18 @@ export default function TicketDesigner({ initialXml, onUpdate, apiBaseUrl }: Tic
                                     })
                                     .filter((v,i,a)=>a.indexOf(v)===i);
                                   return fields.map(f => (
-                                    <td key={f} style={{ padding:0, border:"1px solid #e2e8f0" }}>
+                                    <td key={f} style={{ padding:0, border:"1px solid var(--border-strong, #94a3b8)" }}>
                                       <input type="text" value={row[f] || ""} 
                                         onChange={e => {
                                           const newList = [...printDataList];
                                           newList[idx] = { ...row, [f]: e.target.value };
                                           setPrintDataList(newList);
                                         }}
-                                        style={{ width:"100%", border:"none", padding:6, background:"transparent", outline:"none" }} />
+                                        style={{ width:"100%", border:"none", padding:6, background:"transparent", outline:"none", color: "var(--text)" }} />
                                     </td>
                                   ));
                                 })()}
-                                <td style={{ border:"1px solid #e2e8f0", textAlign:"center" }}>
+                                <td style={{ border:"1px solid var(--border-strong, #94a3b8)", textAlign:"center" }}>
                                   <button onClick={() => setPrintDataList(printDataList.filter((_, i) => i !== idx))}
                                     style={{ border:"none", background:"none", cursor:"pointer", color:"#ef4444" }}>&times;</button>
                                 </td>

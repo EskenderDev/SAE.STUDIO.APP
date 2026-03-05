@@ -1609,7 +1609,7 @@ export default function VisualCanvasEditor({
                               <input type="checkbox" className="toggleInput" id="chk-show-text"
                                 checked={!!sel.showText} 
                                 onChange={e => setObjects(p => p.map(x => x.id === sel.id ? { ...x, showText: e.target.checked } : x))} />
-                              <label htmlFor="chk-show-text" className="toggleTrack">
+                              <label htmlFor="chk-show-text" className="toggleTrack" data-checked={!!sel.showText}>
                                 <div className="toggleThumb"></div>
                               </label>
                             </div>
