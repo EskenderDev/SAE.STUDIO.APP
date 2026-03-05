@@ -40,11 +40,11 @@ import Layout from '../layouts/Layout.astro';
       
       <h1 class="text-5xl lg:text-7xl font-extrabold tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-white via-slate-200 to-slate-400 mb-6 drop-shadow-sm max-w-4xl">
         Infraestructura Profesional para <br class="hidden sm:block"/>
-        <span class="text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-cyan-400">Etiquetado Térmico</span>
+        <span class="text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-cyan-400">Etiquetas y Tickets</span>
       </h1>
       
       <p class="text-lg lg:text-xl text-slate-400 max-w-2xl mb-12 leading-relaxed">
-        El motor definitivo para el diseño e impresión de etiquetas ZPL/EPL. Crea plantillas dinámicas visualmente e imprímelas desde tu aplicación web o móvil a través de nuestra API local ultrarrápida.
+        El motor definitivo para el diseño e impresión de etiquetas industriales y tickets de punto de venta. Crea plantillas dinámicas visualmente e imprímelas desde tu aplicación **escritorio** o móvil a través de nuestra API local.
       </p>
       
       <div class="flex flex-col sm:flex-row gap-4 justify-center items-center w-full">
@@ -65,14 +65,24 @@ import Layout from '../layouts/Layout.astro';
     </section>
 
     <!-- Features Section -->
-    <section class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-24 z-10">
+    <section class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-24 z-10">
       <div class="glass p-8 rounded-2xl border-t border-white/10 hover:bg-white/[0.03] transition-colors group">
         <div class="w-12 h-12 bg-emerald-500/20 text-emerald-400 rounded-xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
           <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z"></path></svg>
         </div>
-        <h3 class="text-xl font-bold text-white mb-3">Diseñador Visual</h3>
+        <h3 class="text-xl font-bold text-white mb-3">Diseñador de Etiquetas</h3>
         <p class="text-slate-400 text-sm leading-relaxed">
-          Interfaz drag-and-drop intuitiva. Conecta datos dinámicos, genera códigos de barras (EAN, QR, Code128) y previsualiza al instante.
+          Interfaz drag-and-drop intuitiva para etiquetas de producto. Soporte nativo para EAN13, QR y Code128 con previsualización real.
+        </p>
+      </div>
+
+      <div class="glass p-8 rounded-2xl border-t border-white/10 hover:bg-white/[0.03] transition-colors group">
+        <div class="w-12 h-12 bg-orange-500/20 text-orange-400 rounded-xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+        </div>
+        <h3 class="text-xl font-bold text-white mb-3">Editor de Tickets</h3>
+        <p class="text-slate-400 text-sm leading-relaxed">
+          Diseño optimizado para rollos continuos. Genera recibos térmicos profesionales con logotipos, tablas de precios y pies de página dinámicos.
         </p>
       </div>
 
@@ -82,7 +92,7 @@ import Layout from '../layouts/Layout.astro';
         </div>
         <h3 class="text-xl font-bold text-white mb-3">API Local (REST)</h3>
         <p class="text-slate-400 text-sm leading-relaxed">
-          Un motor Windows Service en segundo plano escuchando peticiones. Envía un POST con JSON y tu impresora térmica disparará al momento.
+          Motor Windows Service en segundo plano. Envía un POST desde tu software de ventas y la impresora térmica disparará al momento.
         </p>
       </div>
 
@@ -90,9 +100,9 @@ import Layout from '../layouts/Layout.astro';
         <div class="w-12 h-12 bg-purple-500/20 text-purple-400 rounded-xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
           <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
         </div>
-        <h3 class="text-xl font-bold text-white mb-3">Actualizaciones Automáticas</h3>
+        <h3 class="text-xl font-bold text-white mb-3">Tauri Updater</h3>
         <p class="text-slate-400 text-sm leading-relaxed">
-          Tauri Updater integrado con GitHub Releases. Tus clientes siempre tendrán la última versión de la infraestructura de impresión transparente.
+          Actualizaciones automáticas y seguras integradas. Tus clientes siempre tendrán la última versión del motor de impresión.
         </p>
       </div>
     </section>
@@ -100,7 +110,7 @@ import Layout from '../layouts/Layout.astro';
     <!-- Footer with MIT License -->
     <footer class="mt-auto border-t border-white/10 pt-8 pb-8 z-10 flex flex-col md:flex-row justify-between items-center gap-4">
       <div class="text-slate-500 text-sm text-center md:text-left">
-        <p>&copy; {new Date().getFullYear()} EskenderDev. All rights reserved.</p>
+        <p>&copy; {new Date().getFullYear()} EskenderDev. - SAE System All rights reserved.</p>
         <p class="mt-1">
           Released under the <a href="https://github.com/EskenderDev/SAE.STUDIO.APP/blob/master/LICENSE" target="_blank" class="text-emerald-400 hover:underline">MIT License</a>.
         </p>

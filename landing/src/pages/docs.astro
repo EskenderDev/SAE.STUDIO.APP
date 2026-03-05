@@ -13,8 +13,8 @@ import Layout from '../layouts/Layout.astro';
         <svg class="w-5 h-5 group-hover:-translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path></svg>
         Volver al inicio
       </a>
-      <h1 class="text-4xl lg:text-5xl font-bold text-white mb-4">Documentación del Ecosistema</h1>
-      <p class="text-slate-400 text-lg">Guía rápida para integrar el motor de etiquetas SAE.STUDIO en tus proyectos.</p>
+      <h1 class="text-4xl lg:text-5xl font-bold text-white mb-4">Documentación: Etiquetas y Tickets</h1>
+      <p class="text-slate-400 text-lg">Guía rápida para integrar el motor SAE.STUDIO en tus flujos de logística y punto de venta.</p>
     </header>
 
     <div class="space-y-12">
@@ -22,14 +22,14 @@ import Layout from '../layouts/Layout.astro';
       <section>
         <h2 class="text-2xl font-semibold text-white mb-4 flex items-center gap-3">
           <span class="w-8 h-8 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-sm font-bold">01</span>
-          Arquitectura Sidecar
+          Arquitectura Unificada
         </h2>
         <div class="prose prose-invert max-w-none text-slate-300">
           <p>
-            SAE.STUDIO no es solo un diseñador; es una <strong>infraestructura</strong>. Al instalar la aplicación, se registra un servicio de Windows llamado <code>SAE.STUDIO.Api</code> que escucha en el puerto local <code>5117</code>.
+            SAE.STUDIO es un motor híbrido. A diferencia de otros editores, permite gestionar tanto <strong>Etiquetado Industrial</strong> (formatos fijos como 4x6", 2x1") como <strong>Tickets de Punto de Venta</strong> (rollos continuos de 80mm/58mm).
           </p>
           <p>
-            Esto permite que cualquier sitio web (incluso desde el navegador) o aplicación móvil en la misma red pueda enviar órdenes de impresión directamente a las impresoras térmicas conectadas.
+            El servicio <code>SAE.STUDIO.Api</code> escucha en el puerto local <code>5117</code> y procesa ambos tipos de documentos de forma nativa.
           </p>
         </div>
       </section>
@@ -76,6 +76,7 @@ import Layout from '../layouts/Layout.astro';
     </div>
 
     <footer class="mt-20 pt-8 border-t border-white/5 text-center">
+      <p class="text-slate-400 text-sm mb-2">&copy; {new Date().getFullYear()} EskenderDev. - SAE System All rights reserved.</p>
       <p class="text-slate-500 text-sm">¿Necesitas ayuda técnica? Visita el <a href="https://github.com/EskenderDev/SAE.STUDIO.APP/issues" class="text-emerald-400 hover:underline">repositorio en GitHub</a>.</p>
     </footer>
   </main>
