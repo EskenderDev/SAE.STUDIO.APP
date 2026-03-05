@@ -1089,11 +1089,12 @@ export default function LabelWorkbench() {
               <button type="button" className="menuDropdownItem" onClick={() => { setShowPrintersManagerModal(true); closeAllMenus(); }}>
                 Impresoras Lógicas
               </button>
-              <div className="menuDropdownItem" style={{ cursor: 'default', padding: '0.4rem 0.75rem' }} onClick={(e) => e.stopPropagation()}>
-                <label className="toggleLabel" style={{ padding: 0, width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ fontSize: '0.85rem', fontWeight: 500 }}>Auto-guardado</span>
+              <div className="menuDropdownItem" style={{ cursor: 'default', padding: '0.5rem 1rem' }} onClick={(e) => e.stopPropagation()}>
+                <label className="toggleLabel" style={{ padding: 0, width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', pointerEvents: 'none' }}>
+                  <span style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text)' }}>Auto-guardado</span>
                   <span
-                    className="toggleTrack"
+                    className="toggleTrack mini"
+                    style={{ pointerEvents: 'auto' }}
                     data-checked={String(autoSaveEnabled)}
                     onClick={() => setAutoSaveEnabled(!autoSaveEnabled)}
                     role="switch"
@@ -1188,16 +1189,20 @@ export default function LabelWorkbench() {
           background: '#f8fafc', flexShrink: 0, height: '36px'
         }}>
           {(['sae', 'saetickets'] as const).map(k => (
-            <button key={k} onClick={() => handleSwitchKind(k)}
+              <button key={k} onClick={() => handleSwitchKind(k)}
               className={`designerTab ${docKind === k ? 'active' : ''}`}
               style={{
-                padding: '0 20px', fontSize: '0.82rem', height: '100%',
-                border: 'none', borderBottom: docKind === k ? '2px solid var(--primary,#16a34a)' : '2px solid transparent',
-                cursor: 'pointer', fontWeight: docKind === k ? 700 : 500,
-                transition: 'all 0.2s',
-                background: docKind === k ? '#fff' : 'transparent',
-                color: docKind === k ? '#111' : '#64748b',
-                display: 'flex', alignItems: 'center', gap: '0.5rem'
+                padding: '0 24px', fontSize: '0.82rem', height: '100%',
+                border: 'none', 
+                borderBottom: docKind === k ? '2.5px solid var(--accent)' : '2px solid transparent',
+                cursor: 'pointer', fontWeight: docKind === k ? 800 : 500,
+                transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
+                background: docKind === k ? 'transparent' : 'transparent',
+                color: docKind === k ? 'var(--accent)' : 'var(--muted)',
+                display: 'flex', alignItems: 'center', gap: '0.65rem',
+                position: 'relative',
+                textTransform: 'none',
+                letterSpacing: '0.01em'
               }}>
               {k === 'saetickets' ? (
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect x="2" y="4" width="20" height="16" rx="2"/><line x1="6" y1="8" x2="6" y2="8"/><line x1="6" y1="12" x2="6" y2="12"/><line x1="6" y1="16" x2="6" y2="16"/></svg>

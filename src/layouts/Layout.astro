@@ -156,11 +156,12 @@
 
       /* Tab bar (Diseñador de Etiquetas / Tiquetes) */
       [data-theme="dark"] .designerTab.active { 
-        background: #16a34a !important; 
-        color: #ffffff !important; 
-        border-bottom-color: #16a34a !important;
+        background: transparent !important; 
+        color: var(--accent) !important; 
+        border-bottom: 2.5px solid var(--accent) !important;
+        font-weight: 800 !important;
       }
-      [data-theme="dark"] .designerTab.active svg { color: #ffffff !important; }
+      [data-theme="dark"] .designerTab.active svg { color: var(--accent) !important; }
 
       /* Canvas/viewport */
       [data-theme="dark"] .previewViewport { background: #0f172a !important; }
@@ -474,6 +475,20 @@
       }
       .toggleTrack[data-checked="true"] .toggleThumb {
         transform: translateX(18px);
+      }
+      /* Mini toggle variant */
+      .toggleTrack.mini {
+        width: 32px;
+        height: 18px;
+      }
+      .toggleTrack.mini .toggleThumb {
+        width: 12px;
+        height: 12px;
+        top: 3px;
+        left: 3px;
+      }
+      .toggleTrack.mini[data-checked="true"] .toggleThumb {
+        transform: translateX(14px);
       }
       /* Fallback: use :has() for browsers that support it */
       .toggleLabel:has(input:checked) .toggleTrack {
