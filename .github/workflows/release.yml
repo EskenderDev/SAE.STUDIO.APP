@@ -27,7 +27,6 @@ jobs:
         with:
           repository: EskenderDev/SAE.STUDIO
           path: SAE.STUDIO
-          token: ${{ secrets.GH_PAT_BACKEND }}
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
