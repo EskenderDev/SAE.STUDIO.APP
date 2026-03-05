@@ -1,3 +1,9 @@
+export type PhysicalPrinterConfig = {
+  name: string;
+  copies?: number;
+  paperWidth?: number;
+};
+
 import {
   labelsConvertFromGlabels,
   labelsConvertToGlabels,
@@ -12,7 +18,7 @@ export type XmlRequest = {
 export type PrintRequest = {
   xml: string;
   printerName: string;
-  copies: number;
+  copies: number | null;
   data?: Record<string, string>;
   dataList?: Record<string, string>[];
 };
@@ -21,7 +27,8 @@ export type LogicalPrinterDto = {
   id: string;
   name: string;
   description?: string | null;
-  physicalPrinter: string;
+  physicalPrinters: string;
+  printers: PhysicalPrinterConfig[];
   isActive: boolean;
   copies: number;
   paperWidth?: number | null;
@@ -32,7 +39,8 @@ export type UpsertLogicalPrinterRequest = {
   id?: string;
   name: string;
   description?: string | null;
-  physicalPrinter: string;
+  physicalPrinters?: string;
+  printers: PhysicalPrinterConfig[];
   isActive: boolean;
   copies: number;
   paperWidth?: number | null;
@@ -82,6 +90,26 @@ export type UpsertEditorElementPayload = {
   defaultWidthPt: number;
   defaultHeightPt: number;
   defaultContent: string;
+};
+
+export type EditorTemplate = {
+  id: string;
+  name: string;
+  kind: "sae" | "glabels" | "saetickets";
+  icon: string;
+  description: string;
+  xml: string;
+  createdAtUtc: string;
+  updatedAtUtc: string;
+};
+
+export type UpsertEditorTemplatePayload = {
+  id?: string;
+  name: string;
+  kind: "sae" | "saetickets";
+  icon?: string;
+  description?: string;
+  xml: string;
 };
 
 type ApiClientOptions = {
@@ -296,6 +324,11 @@ export function createEditorApi(baseUrl: string, options?: ApiClientOptions) {
         method: "GET",
       }),
 
+    getDocumentByName: async (name: string) =>
+      requestApi<EditorDocument | null>(fetchImpl, `${basePath}/documents/by-name/${encodeURIComponent(name)}`, {
+        method: "GET",
+      }),
+
     saveDocument: async (payload: UpsertEditorDocumentPayload) =>
       requestApi<EditorDocument>(fetchImpl, `${basePath}/documents`, {
         method: "POST",
@@ -321,3 +354,27 @@ export function createEditorApi(baseUrl: string, options?: ApiClientOptions) {
       }),
   };
 }
+
+export function createTemplatesApi(baseUrl: string, options?: ApiClientOptions) {
+  const timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const fetchImpl = createTimeoutFetch(timeoutMs);
+  const normalizedBaseUrl = baseUrl.trim().replace(/\/+$/, "");
+  const basePath = `${normalizedBaseUrl}/api/templates`;
+
+  return {
+    listTemplates: async () =>
+      requestApi<EditorTemplate[]>(fetchImpl, basePath, {
+        method: "GET",
+      }),
+
+    saveTemplate: async (payload: UpsertEditorTemplatePayload) =>
+      requestApi<EditorTemplate>(fetchImpl, basePath, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      }),
+  };
+}
+
+export const editorApi = createEditorApi(DEFAULT_API_BASE_URL);
+export const templatesApi = createTemplatesApi(DEFAULT_API_BASE_URL);

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { labelsApi, createLabelsApi } from "@/lib/api/client";
-import type { LogicalPrinterDto, UpsertLogicalPrinterRequest } from "@/lib/api/client";
+import type { LogicalPrinterDto, UpsertLogicalPrinterRequest, PhysicalPrinterConfig } from "@/lib/api/client";
 
 interface LogicalPrintersManagerModalProps {
   onClose: () => void;
@@ -54,6 +54,164 @@ function Toggle({ checked, onChange, label }: { checked: boolean; onChange: (v: 
   );
 }
 
+// ─── Search Modal component ──────────────────────────────────────────────────
+function PrinterSearchModal({ 
+  onClose, 
+  onSelect, 
+  availablePrinters 
+}: { 
+  onClose: () => void; 
+  onSelect: (p: string) => void; 
+  availablePrinters: string[] 
+}) {
+  const [search, setSearch] = useState("");
+  const filtered = availablePrinters.filter(p => p.toLowerCase().includes(search.toLowerCase()));
+
+  return (
+    <div className="modalBackdrop" style={{ zIndex: 4000, background: 'rgba(0,0,0,0.6)' }} onClick={onClose}>
+      <div className="modalCard" style={{ width: '400px', padding: '1.25rem' }} onClick={e => e.stopPropagation()}>
+        <h4 style={{ margin: '0 0 1rem 0' }}>Buscar Impresora</h4>
+        <input 
+          autoFocus
+          style={INP} 
+          placeholder="Escribe para buscar..." 
+          value={search} 
+          onChange={e => setSearch(e.target.value)} 
+        />
+        <div style={{ maxHeight: '300px', overflowY: 'auto', marginTop: '0.75rem', border: '1px solid var(--border)', borderRadius: '8px' }}>
+          {filtered.length === 0 ? (
+            <div style={{ padding: '1rem', textAlign: 'center', color: 'var(--muted)', fontSize: '0.85rem' }}>No se encontraron impresoras.</div>
+          ) : (
+            filtered.map(p => (
+              <button
+                key={p}
+                className="printerSearchItem"
+                style={{
+                  display: 'block', width: '100%', padding: '0.75rem 1rem', background: 'none',
+                  border: 'none', textAlign: 'left', cursor: 'pointer', borderBottom: '1px solid var(--border)',
+                  fontSize: '0.85rem', transition: 'background 0.2s', color: 'var(--text)'
+                }}
+                onClick={() => { onSelect(p); onClose(); }}
+                onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-subtle, #f1f5f9)'}
+                onMouseLeave={e => e.currentTarget.style.background = 'none'}
+              >
+                {p}
+              </button>
+            ))
+          )}
+        </div>
+        <div style={{ marginTop: '1rem', display: 'flex', justifyContent: 'flex-end' }}>
+          <button type="button" className="secondary" onClick={onClose}>Cerrar</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Size Selector Modal ──────────────────────────────────────────────────
+function SizeSelectorModal({ 
+  onClose, 
+  onSelect, 
+  mediaType,
+  currentValue,
+  isPrinterSpecific
+}: { 
+  onClose: () => void; 
+  onSelect: (val: number | undefined) => void; 
+  mediaType: "receipt" | "label";
+  currentValue?: number;
+  isPrinterSpecific?: boolean;
+}) {
+  const isLabel = mediaType === "label";
+
+  return (
+    <div className="modalBackdrop" style={{ zIndex: 4000, background: 'rgba(0,0,0,0.6)' }} onClick={onClose}>
+      <div className="modalCard" style={{ width: '450px', padding: '1.25rem' }} onClick={e => e.stopPropagation()}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
+          <div>
+            <h4 style={{ margin: 0 }}>Seleccionar {isLabel ? 'Tamaño de Etiqueta' : 'Ancho de Papel'}</h4>
+            {isPrinterSpecific && <span style={{ fontSize: '0.72rem', color: 'var(--muted)' }}>Configuración específica para esta impresora</span>}
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer' }}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+
+        <div style={{ display: 'grid', gap: '0.75rem', maxHeight: '400px', overflowY: 'auto', padding: '0.25rem' }}>
+          {isPrinterSpecific && (
+            <button
+              className="sizeSelectItem"
+              style={{
+                display: 'flex', flexDirection: 'column', gap: '0.2rem', padding: '0.85rem 1rem',
+                background: currentValue === undefined ? 'var(--accent-light, rgba(15,118,110,0.1))' : 'var(--bg-card, #1e293b)',
+                border: `2px solid ${currentValue === undefined ? 'var(--accent)' : 'var(--border)'}`,
+                borderRadius: '10px', cursor: 'pointer', textAlign: 'left', transition: 'all 0.15s'
+              }}
+              onClick={() => { onSelect(undefined); onClose(); }}
+            >
+              <span style={{ fontWeight: 700, fontSize: '0.95rem', color: currentValue === undefined ? 'var(--accent)' : 'var(--text)' }}>
+                Usar valor general (Heredado)
+              </span>
+              <span style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>Respeta la configuración principal de la impresora lógica</span>
+            </button>
+          )}
+
+          {!isLabel ? (
+            /* Receipt Widths */
+            <>
+              {[
+                { value: 80, label: '80 mm', sub: 'Estándar térmico (42 cols)' },
+                { value: 58, label: '58 mm', sub: 'Portátil / Mini (32 cols)' },
+                { value: undefined, label: 'Ancho Libre', sub: 'Sin restricción' },
+              ].map(opt => (
+                <button
+                  key={opt.label}
+                  className="sizeSelectItem"
+                  style={{
+                    display: 'flex', flexDirection: 'column', gap: '0.2rem', padding: '0.85rem 1rem',
+                    background: currentValue === opt.value ? 'var(--accent-light, rgba(15,118,110,0.1))' : 'var(--bg-card, #1e293b)',
+                    border: `2px solid ${currentValue === opt.value ? 'var(--accent)' : 'var(--border)'}`,
+                    borderRadius: '10px', cursor: 'pointer', textAlign: 'left', transition: 'all 0.15s'
+                  }}
+                  onClick={() => { onSelect(opt.value); onClose(); }}
+                >
+                  <span style={{ fontWeight: 700, fontSize: '0.95rem', color: currentValue === opt.value ? 'var(--accent)' : 'var(--text)' }}>{opt.label}</span>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>{opt.sub}</span>
+                </button>
+              ))}
+            </>
+          ) : (
+            /* Label Presets */
+            LABEL_PRESETS.map(preset => (
+              <button
+                key={preset.id}
+                className="sizeSelectItem"
+                style={{
+                  display: 'flex', flexDirection: 'column', gap: '0.2rem', padding: '0.85rem 1rem',
+                  background: (preset.id === 'custom' && !currentValue) || (preset.widthMm === currentValue) ? 'var(--accent-light, rgba(15,118,110,0.1))' : 'var(--bg-card, #1e293b)',
+                  border: `2px solid ${(preset.id === 'custom' && !currentValue) || (preset.widthMm === currentValue) ? 'var(--accent)' : 'var(--border)'}`,
+                  borderRadius: '10px', cursor: 'pointer', textAlign: 'left', transition: 'all 0.15s'
+                }}
+                onClick={() => { 
+                  onSelect(preset.widthMm > 0 ? preset.widthMm : undefined); 
+                  onClose(); 
+                }}
+              >
+                <span style={{ fontWeight: 700, fontSize: '0.95rem', color: ((preset.id === 'custom' && !currentValue) || (preset.widthMm === currentValue)) ? 'var(--accent)' : 'var(--text)' }}>
+                  {preset.name}
+                </span>
+                <span style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>
+                  {preset.widthMm > 0 ? `${preset.widthMm} × ${preset.heightMm} mm — ` : ''}{preset.description}
+                </span>
+              </button>
+            ))
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main Component ──────────────────────────────────────────────────────────
 export default function LogicalPrintersManagerModal({ onClose, apiBaseUrl }: LogicalPrintersManagerModalProps) {
   const api = useMemo(
@@ -73,7 +231,7 @@ export default function LogicalPrintersManagerModal({ onClose, apiBaseUrl }: Log
   type FormState = UpsertLogicalPrinterRequest & { labelPresetId?: string };
 
   const emptyForm = (): FormState => ({
-    name: "", description: "", physicalPrinter: "",
+    name: "", description: "", printers: [],
     isActive: true, copies: 1,
     paperWidth: undefined,   // optional — undefined = let document control
     mediaType: "receipt",
@@ -111,25 +269,28 @@ export default function LogicalPrintersManagerModal({ onClose, apiBaseUrl }: Log
     setEditingId(printer.id);
     setForm({
       id: printer.id, name: printer.name, description: printer.description,
-      physicalPrinter: printer.physicalPrinter, isActive: printer.isActive,
+      printers: printer.printers || [], isActive: printer.isActive,
       copies: printer.copies ?? 1,
       paperWidth: printer.paperWidth ?? undefined,
       mediaType: printer.mediaType ?? "receipt",
       labelPresetId: "custom",
     });
   };
+ 
+  const [showSearch, setShowSearch] = useState(false);
+  const [showSizeSelector, setShowSizeSelector] = useState<{ type: 'global' | 'printer', index?: number } | null>(null);
 
   const handleAddNew = () => {
     setEditingId("new");
     setForm({
       ...emptyForm(),
-      physicalPrinter: systemPrinters.length > 0 ? systemPrinters[0] : "",
+      printers: [],
     });
   };
 
   const handleSave = async () => {
-    if (!form.name || !form.physicalPrinter) {
-      setError("El nombre y la impresora física son obligatorios."); return;
+    if (!form.name || form.printers.length === 0) {
+      setError("El nombre y al menos una impresora física son obligatorios."); return;
     }
     setError(null);
     try {
@@ -228,7 +389,7 @@ export default function LogicalPrintersManagerModal({ onClose, apiBaseUrl }: Log
           ) : editingId ? (
 
             /* ── EDIT / NEW FORM ── */
-            <div className="lpFormCard" style={{ border: '1px solid var(--border)', borderRadius: '12px', padding: '1.25rem', background: 'var(--surface, #fafafa)' }}>
+            <div className="lpFormCard" style={{ border: '1px solid var(--border)', borderRadius: '12px', padding: '1.25rem', background: 'var(--bg-card, #1e293b)' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
                 <div style={{ width: 6, height: 20, background: 'var(--accent)', borderRadius: 3 }} />
                 <h4 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 700 }}>
@@ -255,29 +416,80 @@ export default function LogicalPrintersManagerModal({ onClose, apiBaseUrl }: Log
                   </div>
                 </div>
 
-                {/* Row 2: Impresora física */}
+                {/* Row 2: Impresoras físicas (Multi-selección con buscador) */}
                 <div>
-                  <span style={FL}>Impresora Física *</span>
-                  <select style={{ ...INP, marginBottom: '0.4rem' }} value={form.physicalPrinter}
-                    onChange={e => { if (e.target.value) setForm(p => ({ ...p, physicalPrinter: e.target.value })); }}>
-                    {sysPrintersLoading ? (
-                      <option value="">Cargando impresoras del sistema...</option>
-                    ) : sysPrintersError || systemPrinters.length === 0 ? (
-                      <option value="">No disponibles — escribe abajo</option>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem' }}>
+                    <span style={{ ...FL, marginBottom: 0 }}>Impresoras Configuradas *</span>
+                    <button type="button" className="secondary" onClick={() => setShowSearch(true)} 
+                      style={{ fontSize: '0.75rem', padding: '0.3rem 0.6rem', height: 'auto', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                      Buscar Impresora
+                    </button>
+                  </div>
+ 
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '0.75rem' }}>
+                    {form.printers.length === 0 ? (
+                      <div style={{ padding: '1rem', textAlign: 'center', borderRadius: 8, border: '1px dashed var(--border)', fontSize: '0.8rem', color: 'var(--muted)' }}>
+                        No hay impresoras añadidas. Usa el botón de buscar o escribe abajo.
+                      </div>
                     ) : (
-                      <>
-                        <option value="">— Seleccionar del sistema —</option>
-                        {systemPrinters.map(p => <option key={p} value={p}>{p}</option>)}
-                      </>
+                      <div style={{ display: 'grid', gap: '0.6rem' }}>
+                        {(form.printers || []).map((p, idx) => (
+                          <div key={idx} style={{ 
+                            display: 'grid', gridTemplateColumns: '1fr 85px 120px 32px', gap: '0.75rem', 
+                            alignItems: 'center', padding: '0.75rem 1rem', 
+                            background: 'rgba(255,255,255,0.03)', borderRadius: 12, border: '1px solid var(--border)' 
+                          }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+                              <span style={{ fontSize: '0.85rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text)' }} title={p.name}>{p.name}</span>
+                              <span style={{ fontSize: '0.65rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Impresora Física</span>
+                            </div>
+                            
+                            {/* Per-printer Copies */}
+                            <div title="Copias específicas para esta impresora">
+                              <span style={{ ...FL, fontSize: '0.6rem', marginBottom: '0.2rem', textAlign: 'center' }}>Copias</span>
+                              <input type="number" style={{ ...INP, padding: '0.3rem', textAlign: 'center', background: 'var(--bg-card, #0f172a)', height: '34px' }} 
+                                min={1} value={p.copies || ''} placeholder={`Dft: ${form.copies}`} 
+                                onChange={e => {
+                                  const newList = [...form.printers];
+                                  newList[idx] = { ...p, copies: parseInt(e.target.value) || undefined };
+                                  setForm(f => ({ ...f, printers: newList }));
+                                }} />
+                            </div>
+
+                            {/* Per-printer Size Selector */}
+                            <div title="Tamaño específico para esta impresora">
+                              <span style={{ ...FL, fontSize: '0.6rem', marginBottom: '0.2rem', textAlign: 'center' }}>{isLabel ? 'Tamaño' : 'Ancho'}</span>
+                              <button
+                                type="button"
+                                onClick={() => setShowSizeSelector({ type: 'printer', index: idx })}
+                                style={{
+                                  ...INP, padding: '0.3rem 0.5rem', cursor: 'pointer', textAlign: 'center',
+                                  background: 'var(--bg-card, #0f172a)', height: '34px', fontSize: '0.78rem',
+                                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.2rem'
+                                }}
+                              >
+                                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                  {p.paperWidth 
+                                    ? (isLabel ? (LABEL_PRESETS.find(pr => pr.widthMm === p.paperWidth)?.name || `${p.paperWidth}mm`) : `${p.paperWidth}mm`)
+                                    : `Dft: ${form.paperWidth || (isLabel ? 'Libre' : 'Libre')}`
+                                  }
+                                </span>
+                              </button>
+                            </div>
+
+                            <button type="button" className="danger mini" style={{ padding: '0', height: '32px', width: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '8px', alignSelf: 'end', marginBottom: '1px' }}
+                              onClick={() => setForm(f => ({ ...f, printers: f.printers.filter((_, i) => i !== idx) }))}>
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                            </button>
+                          </div>
+                        ))}
+                      </div>
                     )}
-                  </select>
-                  <input style={INP} value={form.physicalPrinter}
-                    placeholder="O escribe el nombre exacto en Windows"
-                    onFocus={e => e.currentTarget.style.borderColor = 'var(--accent)'}
-                    onBlur={e => e.currentTarget.style.borderColor = 'var(--border)'}
-                    onChange={e => setForm(p => ({ ...p, physicalPrinter: e.target.value }))} />
+                  </div>
+ 
                   {sysPrintersError && (
-                    <span style={{ fontSize: '0.72rem', color: '#b45309', marginTop: '0.25rem', display: 'block' }}>{sysPrintersError}</span>
+                    <span style={{ fontSize: '0.72rem', color: '#f87171', marginTop: '0.25rem', display: 'block' }}>{sysPrintersError}</span>
                   )}
                 </div>
 
@@ -320,64 +532,37 @@ export default function LogicalPrintersManagerModal({ onClose, apiBaseUrl }: Log
                 </div>
 
                 {/* Row 4: Paper width — context-aware */}
-                {!isLabel ? (
-                  /* Receipt: fixed width preset OR custom value */
-                  <div>
-                    <span style={FL}>Ancho de Papel</span>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', marginTop: '0.3rem' }}>
-                      {[
-                        { value: 80, label: '80 mm', sub: '42 columnas' },
-                        { value: 58, label: '58 mm', sub: '32 columnas' },
-                      ].map(opt => (
-                        <button
-                          key={opt.value}
-                          type="button"
-                          onClick={() => setForm(p => ({ ...p, paperWidth: opt.value }))}
-                          style={{
-                            padding: '0.6rem 0.75rem', borderRadius: 8, cursor: 'pointer',
-                            border: `2px solid ${form.paperWidth === opt.value ? 'var(--accent)' : 'var(--border)'}`,
-                            background: form.paperWidth === opt.value ? 'var(--bg-subtle, rgba(15,118,110,0.07))' : 'var(--surface, #fff)',
-                            color: form.paperWidth === opt.value ? 'var(--accent)' : 'var(--text)',
-                            fontWeight: form.paperWidth === opt.value ? 700 : 500,
-                            fontSize: '0.85rem', transition: 'all 0.15s', textAlign: 'center',
-                          }}
-                        >
-                          <div>{opt.label}</div>
-                          <div style={{ fontSize: '0.7rem', opacity: 0.65 }}>{opt.sub}</div>
-                        </button>
-                      ))}
-                    </div>
-                    <label className="customCheckbox" style={{ marginTop: '0.5rem', fontSize: '0.78rem' }}>
-                      <input type="checkbox"
-                        checked={form.paperWidth === undefined}
-                        onChange={e => setForm(p => ({ ...p, paperWidth: e.target.checked ? undefined : 80 }))}
-                      />
-                      Sin restricción de ancho (el documento manda el tamaño)
-                    </label>
-                  </div>
-                ) : (
-                  /* Label: choose from presets */
-                  <div>
-                    <span style={FL}>Tamaño de Etiqueta</span>
-                    <select style={{ ...INP, marginTop: '0.3rem' }} value={form.labelPresetId || 'custom'}
-                      onChange={e => setForm(p => ({ ...p, labelPresetId: e.target.value }))}>
-                      {LABEL_PRESETS.map(p => (
-                        <option key={p.id} value={p.id}>
-                          {p.name}{p.widthMm > 0 ? ` — ${p.widthMm}×${p.heightMm} mm` : ''}
-                        </option>
-                      ))}
-                    </select>
-                    {form.labelPresetId === 'custom' ? (
-                      <div className="lpInfoBox success" style={{ marginTop: '0.4rem', padding: '0.5rem 0.75rem', background: 'var(--success-bg, #f0fdf4)', borderRadius: 6, fontSize: '0.75rem', color: 'var(--success-text, #166534)', border: '1px solid var(--success-border, #bbf7d0)' }}>
-                        📄 El tamaño lo controla el documento a imprimir
+                <div>
+                  <span style={FL}>{isLabel ? 'Tamaño de Etiqueta (General)' : 'Ancho de Papel (General)'}</span>
+                  <button
+                    type="button"
+                    onClick={() => setShowSizeSelector({ type: 'global' })}
+                    style={{
+                      ...INP, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                      background: 'var(--bg-card, #1e293b)', borderColor: 'var(--border)', height: '42px'
+                    }}
+                  >
+                    <span>
+                      {isLabel 
+                        ? (LABEL_PRESETS.find(p => p.widthMm === form.paperWidth)?.name || 'Personalizado')
+                        : (form.paperWidth ? `${form.paperWidth} mm` : 'Ancho Libre')
+                      }
+                    </span>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><polyline points="6 9 12 15 18 9"/></svg>
+                  </button>
+                  
+                  <div style={{ marginTop: '0.5rem' }}>
+                    {isLabel ? (
+                      <div className="lpInfoBox info" style={{ padding: '0.5rem 0.75rem', background: 'rgba(59, 130, 246, 0.05)', borderRadius: 6, fontSize: '0.75rem', color: '#60a5fa', border: '1px solid rgba(59, 130, 246, 0.2)' }}>
+                        📐 {LABEL_PRESETS.find(p => p.widthMm === form.paperWidth)?.description || 'El tamaño lo controla el documento'}
                       </div>
                     ) : (
-                      <div className="lpInfoBox info" style={{ marginTop: '0.4rem', padding: '0.5rem 0.75rem', background: 'var(--info-bg, #eff6ff)', borderRadius: 6, fontSize: '0.75rem', color: 'var(--info-text, #1e40af)', border: '1px solid var(--info-border, #bfdbfe)' }}>
-                        📐 {LABEL_PRESETS.find(p => p.id === form.labelPresetId)?.description}
+                      <div className="lpInfoBox info" style={{ padding: '0.5rem 0.75rem', background: 'rgba(16, 185, 129, 0.05)', borderRadius: 6, fontSize: '0.75rem', color: '#34d399', border: '1px solid rgba(16, 185, 129, 0.2)' }}>
+                        🧾 {form.paperWidth ? `Optimizado para papel de ${form.paperWidth}mm` : 'Tamaño variable según contenido'}
                       </div>
                     )}
                   </div>
-                )}
+                </div>
 
                 {/* Row 5: Activa toggle */}
                 <div style={{ paddingTop: '0.25rem', borderTop: '1px solid var(--border)' }}>
@@ -440,7 +625,7 @@ export default function LogicalPrintersManagerModal({ onClose, apiBaseUrl }: Log
                             )}
                           </div>
                           <div style={{ fontSize: '0.78rem', color: 'var(--muted)', marginTop: '0.25rem', display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
-                            <span>🖨 <strong>{printer.physicalPrinter}</strong></span>
+                            <span>🖨 <strong>{(printer.printers || []).map(p => p.name).join(', ') || 'N/A'}</strong></span>
                             {printer.paperWidth
                               ? <span>{printer.paperWidth}mm</span>
                               : <span style={{ fontStyle: 'italic' }}>ancho libre</span>
@@ -460,6 +645,37 @@ export default function LogicalPrintersManagerModal({ onClose, apiBaseUrl }: Log
             </>
           )}
         </div>
+        
+        {showSearch && (
+          <PrinterSearchModal 
+            availablePrinters={systemPrinters} 
+            onClose={() => setShowSearch(false)}
+            onSelect={(p: string) => {
+              if (!form.printers.some(x => x.name === p)) {
+                setForm(f => ({ ...f, printers: [...f.printers, { name: p }] }));
+              }
+            }}
+          />
+        )}
+
+        {showSizeSelector && (
+          <SizeSelectorModal 
+            mediaType={form.mediaType as any}
+            isPrinterSpecific={showSizeSelector.type === 'printer'}
+            currentValue={showSizeSelector.type === 'global' ? (form.paperWidth ?? undefined) : (form.printers[showSizeSelector.index!].paperWidth ?? undefined)}
+            onClose={() => setShowSizeSelector(null)}
+            onSelect={(val: number | undefined) => {
+              if (showSizeSelector.type === 'global') {
+                setForm(f => ({ ...f, paperWidth: val }));
+              } else {
+                const newList = [...form.printers];
+                const idx = showSizeSelector.index!;
+                newList[idx] = { ...newList[idx], paperWidth: val };
+                setForm(f => ({ ...f, printers: newList }));
+              }
+            }}
+          />
+        )}
       </div>
     </div>
   );

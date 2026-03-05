@@ -6,6 +6,7 @@ import { createEditorApi, createLabelsApi } from "@/lib/api/client";
 import JsBarcode from "jsbarcode";
 import QRCode from "qrcode";
 import LogicalPrintersManagerModal from "./LogicalPrintersManagerModal";
+import { Portal } from "./Portal";
 
 type Props = {
   xml: string;
@@ -434,6 +435,7 @@ export default function VisualCanvasEditor({
   const [zoomPercent, setZoomPercent] = useState(200);
   const [error, setError] = useState("");
   const [objects, setObjects] = useState<Obj[]>([]);
+  const [showHelpModal, setShowHelpModal] = useState(false);
 
   // ── Undo / Redo history ───────────────────────────────────────────────────
   const historyRef = useRef<Obj[][]>([]);
@@ -561,7 +563,7 @@ export default function VisualCanvasEditor({
       const payload: any = {
         xml,
         printerName: printForm.printerName.trim(),
-        copies: printForm.copies,
+        copies: printForm.copies <= 1 ? null : printForm.copies,
       };
 
       if (variables.length > 0) {
@@ -1274,9 +1276,23 @@ export default function VisualCanvasEditor({
               </span>
             </label>
             <select className="unitSelect" value={templateUnit} onChange={(e) => setTemplateUnit(e.target.value as Unit)}>
-              {["mm", "cm", "in", "pt"].map(u => <option key={u} value={u}>{u}</option>)}
             </select>
           </div>
+          <div className="toolbarDivider" />
+          <button
+            onClick={() => setShowHelpModal(true)}
+            title="Documentación y guía de uso"
+            style={{
+              background: "var(--primary,#16a34a)", color: "#fff",
+              border: "none", borderRadius: "50%",
+              width: 28, height: 28, padding: 0,
+              fontSize: "0.9rem", fontWeight: 800,
+              cursor: "help", flexShrink: 0,
+              boxShadow: "0 2px 6px rgba(22,163,74,0.3)",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              marginLeft: '0.5rem'
+            }}
+          >?</button>
         </div>
       </header>
 
@@ -1702,11 +1718,16 @@ export default function VisualCanvasEditor({
                   {variables.map(v => {
                     const isNumeric = ['integer', 'int', 'decimal', 'float', 'double'].includes(v.type || 'text');
                     return (
-                      <div key={v.name} className="variableCard" style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', background: '#ffffff', padding: '0.8rem', borderRadius: '8px', border: '1px solid var(--border)', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+                      <div key={v.name} className="variableCard" style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', background: 'var(--surface, #1e293b)', padding: '0.8rem', borderRadius: '8px', border: '1px solid var(--border)', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)' }}>
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                          <code style={{ fontSize: '0.85rem', color: 'var(--primary)', backgroundColor: 'var(--primary-light, #e0f2fe)', padding: '0.2rem 0.5rem', borderRadius: '4px', cursor: 'pointer', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.3rem', transition: 'all 0.2s' }} 
-                            onMouseEnter={e => (e.currentTarget.style.backgroundColor = '#bae6fd')}
-                            onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'var(--primary-light, #e0f2fe)')}
+                          <code style={{ 
+                            fontSize: '0.8rem', color: '#60a5fa', backgroundColor: 'rgba(30, 64, 175, 0.2)', 
+                            padding: '0.4rem 0.6rem', borderRadius: '6px', cursor: 'pointer', fontWeight: 600, 
+                            display: 'flex', alignItems: 'center', gap: '0.4rem', transition: 'all 0.2s',
+                            border: '1px solid rgba(96, 165, 250, 0.3)', userSelect: 'none'
+                          }} 
+                            onMouseEnter={e => { e.currentTarget.style.backgroundColor = 'rgba(30, 64, 175, 0.4)'; e.currentTarget.style.borderColor = '#60a5fa'; }}
+                            onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'rgba(30, 64, 175, 0.2)'; e.currentTarget.style.borderColor = 'rgba(96, 165, 250, 0.3)'; }}
                             onClick={() => { 
                               if (sel && (sel.type === 'text' || sel.type === 'barcode')) {
                                 setObjects(p => p.map(o => o.id === sel.id ? { ...o, content: (o.content || '') + `\${${v.name}}` } : o));
@@ -1716,11 +1737,11 @@ export default function VisualCanvasEditor({
                               }
                             }}
                           >
-                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
                             {`{${v.name}}`}
                           </code>
                           <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                            <select value={v.type || "text"} onChange={e => setVariables(p => p.map(x => x.name === v.name ? { ...x, type: e.target.value } : x))} style={{ fontSize: '0.85rem', padding: '6px 10px', borderRadius: '4px', border: '1px solid var(--border)', backgroundColor: '#f8fafc', fontWeight: 500, cursor: 'pointer', outline: 'none' }}>
+                            <select value={v.type || "text"} onChange={e => setVariables(p => p.map(x => x.name === v.name ? { ...x, type: e.target.value } : x))} style={{ fontSize: '0.8rem', padding: '6px 12px', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-card, #0f172a)', color: 'var(--text)', fontWeight: 500, cursor: 'pointer', outline: 'none', width: '110px' }}>
                               <option value="text">Texto</option>
                               <option value="integer">Entero</option>
                               <option value="decimal">Decimal</option>
@@ -1930,7 +1951,7 @@ export default function VisualCanvasEditor({
                   <select style={{ display: 'block', width: '100%', marginTop: '0.4rem', padding: '0.5rem' }} value={printForm.printerName} onChange={(e) => setPrintForm(p => ({ ...p, printerName: e.target.value }))} disabled={printForm.isPrinting}>
                     <option value="">-- Seleccionar impresora o escribir nombre abajo --</option>
                     {availableLogicalPrinters.map(p => (
-                      <option key={p.id} value={p.name}>{p.name} (Física: {p.physicalPrinter})</option>
+                      <option key={p.id} value={p.name}>{p.name} (Física: {p.printers?.map(x => x.name).join(', ') || 'N/A'})</option>
                     ))}
                   </select>
                 ) : null}
@@ -2015,6 +2036,85 @@ export default function VisualCanvasEditor({
             setAvailableLogicalPrinters(logPrinters.filter(p => p.isActive));
           } catch(e){}
         }} />
+      )}
+      {showHelpModal && (
+        <Portal>
+        <div className="modalBackdrop">
+          <div className="modalCard" onClick={e=>e.stopPropagation()} style={{ width:"700px", maxHeight:"85vh", overflow:"auto", position: 'relative' }}>
+            <button 
+              onClick={() => setShowHelpModal(false)}
+              style={{ position: 'absolute', top: '1.5rem', right: '1.5rem', background: 'none', border: 'none', fontSize: '1.5rem', cursor: 'pointer', opacity: 0.5, color: 'var(--text)' }}
+            >×</button>
+            <h2 style={{ marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+              <span style={{ background: 'var(--accent)', color: '#fff', width: '32px', height: '32px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.1rem' }}>?</span>
+              Ayuda y Documentación
+            </h2>
+            
+            <div className="helpGrid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2rem', textAlign: 'left' }}>
+              <section>
+                <h4 style={{ color: 'var(--accent)', borderBottom: '2px solid var(--border)', paddingBottom: '0.5rem', marginBottom: '1rem' }}>🖱️ Tipos de Selección</h4>
+                <ul style={{ paddingLeft: '1.2rem', fontSize: '0.85rem', lineHeight: '1.6' }}>
+                  <li><strong>Clic Simple:</strong> Selecciona un elemento.</li>
+                  <li><strong>Ctrl + Clic:</strong> Selección múltiple o deseleccionar.</li>
+                  <li><strong>Arrastre (Caja):</strong> 
+                    <ul style={{ paddingLeft: '1rem', marginTop: '0.3rem' }}>
+                      <li>Hacia la derecha: Selecciona lo que <i>toca</i> la caja.</li>
+                      <li>Hacia la izquierda: Selecciona solo lo que está <i>contenido</i>.</li>
+                    </ul>
+                  </li>
+                  <li><strong>Doble Clic:</strong> Activa el modo de transformación (rotación y sesgado).</li>
+                </ul>
+              </section>
+
+              <section>
+                <h4 style={{ color: 'var(--accent)', borderBottom: '2px solid var(--border)', paddingBottom: '0.5rem', marginBottom: '1rem' }}>📏 Reglas y Guías</h4>
+                <ul style={{ paddingLeft: '1.2rem', fontSize: '0.85rem', lineHeight: '1.6' }}>
+                  <li><strong>Crear Guía:</strong> Haz clic y arrastra desde la regla horizontal o vertical hacia el lienzo.</li>
+                  <li><strong>Mover Guía:</strong> Arrastra una guía existente para cambiar su posición.</li>
+                  <li><strong>Eliminar Guía:</strong> Arrastra la guía de vuelta hacia su regla de origen.</li>
+                  <li>Las unidades pueden cambiarse entre mm, cm, in y pt en la barra superior.</li>
+                </ul>
+              </section>
+
+              <section>
+                <h4 style={{ color: 'var(--accent)', borderBottom: '2px solid var(--border)', paddingBottom: '0.5rem', marginBottom: '1rem' }}>🛠️ Herramientas Nuevas</h4>
+                <ul style={{ paddingLeft: '1.2rem', fontSize: '0.85rem', lineHeight: '1.6' }}>
+                  <li>Activa el <strong>Modo Edición</strong> (Switch "Edit" arriba a la izquierda).</li>
+                  <li>Usa el botón <strong>"+ Nueva"</strong> para crear una herramienta personalizada.</li>
+                  <li>Configura el nombre, la categoría y el contenido por defecto.</li>
+                  <li>Puedes usar <i>Placeholders</i> para que la herramienta ya traiga variables.</li>
+                </ul>
+              </section>
+
+              <section>
+                <h4 style={{ color: 'var(--accent)', borderBottom: '2px solid var(--border)', paddingBottom: '0.5rem', marginBottom: '1rem' }}>Variable <code>{"{VAR}"}</code></h4>
+                <ul style={{ paddingLeft: '1.2rem', fontSize: '0.85rem', lineHeight: '1.6' }}>
+                  <li>Usa el formato <code>{"${nombre_variable}"}</code> en cualquier campo de texto.</li>
+                  <li>Define las variables en la pestaña <strong>Variables</strong> del panel derecho.</li>
+                  <li>Al imprimir, el sistema te pedirá los valores o podrás cargarlos desde un Excel.</li>
+                  <li>Soporta incrementos automáticos y pasos configurables.</li>
+                </ul>
+              </section>
+
+              <section style={{ gridColumn: 'span 2' }}>
+                <h4 style={{ color: 'var(--accent)', borderBottom: '2px solid var(--border)', paddingBottom: '0.5rem', marginBottom: '1rem' }}>🖨️ Impresoras Lógicas</h4>
+                <p style={{ fontSize: '0.85rem', lineHeight: '1.6', marginBottom: '0.5rem' }}>
+                  Las impresoras lógicas permiten mapear nombres amigables a colas de impresión físicas en el servidor.
+                </p>
+                <ul style={{ paddingLeft: '1.2rem', fontSize: '0.85rem', lineHeight: '1.6' }}>
+                  <li>Accede desde <strong>Configuraciones → Impresoras Lógicas</strong>.</li>
+                  <li>Puedes asignar múltiples impresoras físicas a una sola impresora lógica para redundancia o balanceo.</li>
+                  <li>En el diálogo de impresión, selecciona la impresora lógica de la lista desplegable.</li>
+                </ul>
+              </section>
+            </div>
+
+            <div className="modalActions" style={{ marginTop: '2rem' }}>
+              <button type="button" className="primary" onClick={() => setShowHelpModal(false)} style={{ width: '100%', padding: '0.8rem' }}>Entendido</button>
+            </div>
+          </div>
+        </div>
+        </Portal>
       )}
     </section>
   );

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { createLabelsApi, DEFAULT_API_BASE_URL, createEditorApi } from "@/lib/api/client";
-import type { EditorDocumentSummary, UpsertEditorDocumentPayload } from "@/lib/api/client";
+import { createLabelsApi, DEFAULT_API_BASE_URL, createEditorApi, templatesApi } from "@/lib/api/client";
+import type { EditorDocumentSummary, UpsertEditorDocumentPayload, EditorTemplate } from "@/lib/api/client";
 import VisualCanvasEditor from "@/components/VisualCanvasEditor";
 import TicketDesigner from "@/components/TicketDesigner";
 import LogicalPrintersManagerModal from "@/components/LogicalPrintersManagerModal";
@@ -69,6 +69,16 @@ type LabelPreset = {
   description: string;
 };
 
+const LABEL_PRESETS: LabelPreset[] = [
+  { id: "custom", name: "Custom", width: 50, height: 25, unit: "mm", brand: "Custom", part: "P-1", size: "custom", description: "Tamaño personalizado" },
+  { id: "avery-5160", name: "Avery 5160 (Address)", width: 66.675, height: 25.4, unit: "mm", brand: "Avery", part: "5160", size: "US Letter", description: "30 etiquetas por hoja" },
+  { id: "avery-5163", name: "Avery 5163 (Shipping)", width: 101.6, height: 50.8, unit: "mm", brand: "Avery", part: "5163", size: "US Letter", description: "10 etiquetas por hoja" },
+  { id: "avery-5164", name: "Avery 5164 (Shipping)", width: 101.6, height: 84.667, unit: "mm", brand: "Avery", part: "5164", size: "US Letter", description: "6 etiquetas por hoja" },
+  { id: "dymo-30252", name: "DYMO 30252 (Address)", width: 54, height: 25, unit: "mm", brand: "DYMO", part: "30252", size: "Roll", description: "Address label" },
+  { id: "brother-dk-11201", name: "Brother DK-11201", width: 29, height: 90, unit: "mm", brand: "Brother", part: "DK-11201", size: "Roll", description: "Address label" },
+  { id: "zebra-4x6", name: "Zebra 4x6 Shipping", width: 4, height: 6, unit: "in", brand: "Zebra", part: "4x6", size: "Roll", description: "Envío estándar" },
+];
+
 const PT_PER_IN = 72;
 const MM_PER_IN = 25.4;
 const toPt = (value: number, unit: Unit): number => {
@@ -81,23 +91,13 @@ const fmt = (n: number) => n.toFixed(4).replace(/\.?0+$/, "");
 const xesc = (v: string) =>
   v.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
-const LABEL_PRESETS: LabelPreset[] = [
-  { id: "custom", name: "Custom", width: 50, height: 25, unit: "mm", brand: "Custom", part: "P-1", size: "custom", description: "Tamano personalizado" },
-  { id: "avery-5160", name: "Avery 5160 (Address)", width: 66.675, height: 25.4, unit: "mm", brand: "Avery", part: "5160", size: "US Letter", description: "30 etiquetas por hoja" },
-  { id: "avery-5163", name: "Avery 5163 (Shipping)", width: 101.6, height: 50.8, unit: "mm", brand: "Avery", part: "5163", size: "US Letter", description: "10 etiquetas por hoja" },
-  { id: "avery-5164", name: "Avery 5164 (Shipping)", width: 101.6, height: 84.667, unit: "mm", brand: "Avery", part: "5164", size: "US Letter", description: "6 etiquetas por hoja" },
-  { id: "dymo-30252", name: "DYMO 30252 (Address)", width: 54, height: 25, unit: "mm", brand: "DYMO", part: "30252", size: "Roll", description: "Address label" },
-  { id: "brother-dk-11201", name: "Brother DK-11201", width: 29, height: 90, unit: "mm", brand: "Brother", part: "DK-11201", size: "Roll", description: "Address label" },
-  { id: "zebra-4x6", name: "Zebra 4x6 Shipping", width: 4, height: 6, unit: "in", brand: "Zebra", part: "4x6", size: "Roll", description: "Envio estandar" },
-];
-
 function buildNewDocumentXml(draft: NewDocumentDraft): string {
   const widthPt = Math.max(1, toPt(draft.width, draft.unit));
   const heightPt = Math.max(1, toPt(draft.height, draft.unit));
-  const brand = xesc(draft.brand.trim() || "Custom");
-  const description = xesc((draft.description.trim() || draft.name.trim() || "Nuevo documento"));
-  const part = xesc(draft.part.trim() || "P-1");
-  const size = xesc(draft.size.trim() || "custom");
+  const brand = "Custom";
+  const description = xesc((draft.name.trim() || "Nueva etiqueta"));
+  const part = "P-1";
+  const size = "custom";
   if (draft.kind === "sae") {
     return `<saelabels version="1.0"><template brand="${brand}" description="${description}" part="${part}" size="${size}"><label_rectangle width_pt="${fmt(widthPt)}" height_pt="${fmt(heightPt)}" round_pt="0" x_waste_pt="0" y_waste_pt="0" /><layout dx_pt="0" dy_pt="0" nx="1" ny="1" x0_pt="0" y0_pt="0" /></template><objects /><variables /></saelabels>`;
   }
@@ -189,6 +189,7 @@ export default function LabelWorkbench() {
   const [openDocSearch, setOpenDocSearch] = useState("");
   const [showNewTypeModal, setShowNewTypeModal] = useState(false);
   const [showNewConfigModal, setShowNewConfigModal] = useState(false);
+  const [showNewTicketConfigModal, setShowNewTicketConfigModal] = useState(false);
   const [selectedPresetId, setSelectedPresetId] = useState("custom");
   const [newDocumentDraft, setNewDocumentDraft] = useState<NewDocumentDraft>({
     kind: "sae",
@@ -201,6 +202,10 @@ export default function LabelWorkbench() {
     part: "P-1",
     size: "custom",
   });
+  const [newTicketDraft, setNewTicketDraft] = useState({
+    name: "Nuevo Tiquete",
+    width: 80, // mm
+  });
 
   const [documents, setDocuments] = useState<EditorDocumentSummary[]>([]);
   const [metaVersion, setMetaVersion] = useState("1.0");
@@ -210,9 +215,9 @@ export default function LabelWorkbench() {
   const [metaSize, setMetaSize] = useState("custom");
 
   const [propertiesModalOpen, setPropertiesModalOpen] = useState(false);
-  const [saveAsModalOpen, setSaveAsModalOpen] = useState(false);
-  const [saveAsName, setSaveAsName] = useState("");
   const [autoSaveEnabled, setAutoSaveEnabled] = useState(true);
+  const [pendingTemplateXml, setPendingTemplateXml] = useState<string | null>(null);
+  const [templates, setTemplates] = useState<EditorTemplate[]>([]);
   const [saveStatus, setSaveStatus] = useState<"saved" | "saving" | "modified" | "error">("saved");
   const [darkMode, setDarkMode] = useState<boolean>(() => {
     if (typeof window === 'undefined') return false;
@@ -298,6 +303,20 @@ export default function LabelWorkbench() {
     window.localStorage.setItem(STORAGE.sessions, JSON.stringify(sessions));
   }, [sessions]);
 
+  // Fetch templates once
+  useEffect(() => {
+    refreshTemplates();
+  }, []);
+
+  const refreshTemplates = async () => {
+    try {
+      const list = await templatesApi.listTemplates();
+      setTemplates(list);
+    } catch (err) {
+      console.error("Error fetching templates:", err);
+    }
+  };
+
   useEffect(() => {
     if (typeof window === "undefined") return;
     window.localStorage.setItem(STORAGE.autoSaveEnabled, String(autoSaveEnabled));
@@ -323,7 +342,7 @@ export default function LabelWorkbench() {
 
       // ── Modal keyboard shortcuts ─────────────────────────────────────────────
       const anyModalOpen =
-        saveAsModalOpen || propertiesModalOpen || showNewConfigModal ||
+        propertiesModalOpen || showNewConfigModal ||
         showNewTypeModal || showApiConfigModal || showOpenDocModal ||
         showResultModal || showTemplatesGallery || showAboutModal || showPrintersManagerModal;
 
@@ -332,7 +351,6 @@ export default function LabelWorkbench() {
       if (e.key === 'Escape') {
         e.preventDefault();
         // Close in priority order (topmost/most recently opened first)
-        if (saveAsModalOpen)         { setSaveAsModalOpen(false); return; }
         if (propertiesModalOpen)     { setPropertiesModalOpen(false); return; }
         if (showNewConfigModal)      { setShowNewConfigModal(false); return; }
         if (showNewTypeModal)        { setShowNewTypeModal(false); return; }
@@ -347,10 +365,6 @@ export default function LabelWorkbench() {
       if (e.key === 'Enter' && !isTyping) {
         e.preventDefault();
         // Trigger primary action for the topmost modal
-        if (saveAsModalOpen) {
-          void saveAsDoc();
-          return;
-        }
         if (showNewConfigModal) {
           // click the primary button
           (document.querySelector('.modalCard button.primary') as HTMLButtonElement)?.click();
@@ -373,7 +387,7 @@ export default function LabelWorkbench() {
   }, [
     labelXml, ticketXml, labelDocId, ticketDocId, labelDocName, ticketDocName,
     docKind, labelFileHandle, ticketFileHandle,
-    saveAsModalOpen, propertiesModalOpen, showNewConfigModal, showNewTypeModal,
+    propertiesModalOpen, showNewConfigModal, showNewTypeModal,
     showApiConfigModal, showOpenDocModal, showResultModal, showTemplatesGallery,
     showAboutModal, showPrintersManagerModal,
   ]);
@@ -447,10 +461,20 @@ export default function LabelWorkbench() {
       await writable.write(xml);
       await writable.close();
       
-      if (docId) {
-        await editorApi.saveDocument({ id: docId, name: docName, kind: docKind, xml });
+      // ALWAYS try to save to backend (persistence)
+      const res = await editorApi.saveDocument({ 
+        id: docId || undefined, 
+        name: docName, 
+        kind: docKind, 
+        xml 
+      });
+      
+      // If we didn't have an ID (e.g. newly opened local file), update it
+      if (!docId) {
+        setDocId(res.id);
       }
       setSaveStatus("saved");
+      void refreshDocuments();
     } catch (e) {
       console.error("Failed to save:", e);
       setSaveStatus("error");
@@ -473,7 +497,25 @@ export default function LabelWorkbench() {
     }
   };
 
+  const confirmDiscardChanges = async (): Promise<boolean> => {
+    if (saveStatus !== "modified") return true;
+    
+    // In a real app we might want a prettier modal, but confirm is effective
+    const saveFirst = window.confirm("Tienes cambios sin guardar. ¿Deseas guardarlos antes de continuar?\n\nAceptar: Guardar y continuar\nCancelar: Descartar cambios y continuar (o cerrar este mensaje para volver)");
+    
+    if (saveFirst) {
+      await saveDoc();
+      // If after saving it's still modified (e.g. error), don't proceed
+      return saveStatus !== "modified";
+    }
+    
+    // If they clicked cancel, they might have meant "just discard" or "don't close".
+    // Let's refine the logic to be safer:
+    return window.confirm("¿Seguro que deseas descartar los cambios actuales?");
+  };
+
   const openLocalFile = async () => {
+    if (!(await confirmDiscardChanges())) return;
     if (typeof window !== "undefined" && "showOpenFilePicker" in window) {
       try {
         const [handle] = await (window as any).showOpenFilePicker({
@@ -496,16 +538,27 @@ export default function LabelWorkbench() {
         setDocKind(kind);
         
         // Contextual updates
+        const cleanName = file.name.replace(/\.(xml|saetickets|saelabels)$/i, "");
         if (kind === "saetickets") {
           setTicketXml(sanitized);
-          setTicketDocName(file.name.replace(/\.(xml|saetickets)$/i, ""));
-          setTicketDocId("");
+          setTicketDocName(cleanName);
           setTicketFileHandle(handle);
+          // Try to recover ID from library if it exists
+          try {
+            const existing = await editorApi.getDocumentByName(cleanName);
+            if (existing && existing.kind === 'saetickets') setTicketDocId(existing.id);
+            else setTicketDocId("");
+          } catch { setTicketDocId(""); }
         } else {
           setLabelXml(sanitized);
-          setLabelDocName(file.name.replace(/\.(xml|saelabels)$/i, ""));
-          setLabelDocId("");
+          setLabelDocName(cleanName);
           setLabelFileHandle(handle);
+          // Try to recover ID from library if it exists
+          try {
+            const existing = await editorApi.getDocumentByName(cleanName);
+            if (existing && existing.kind !== 'saetickets') setLabelDocId(existing.id);
+            else setLabelDocId("");
+          } catch { setLabelDocId(""); }
         }
         
         setSaveStatus("saved");
@@ -550,25 +603,20 @@ export default function LabelWorkbench() {
       }
     }
 
-    // Fallback: Virtual Save As in Backend
-    if (!saveAsName.trim()) {
-      setSaveAsModalOpen(true);
-      return;
-    }
+    // Fallback: Virtual Save As in Backend (Automatic Copy)
+    const newName = (docName || "documento") + " (Copia)";
     try {
       const payload: UpsertEditorDocumentPayload = {
-        name: saveAsName.trim(),
+        name: newName,
         kind: docKind,
         xml,
       };
       const res = await editorApi.saveDocument(payload);
       setDocId(res.id);
       setDocName(res.name);
-      setSaveAsModalOpen(false);
-      setSaveAsName("");
       setError("");
       void refreshDocuments();
-      setResult("Copia guardada exitosamente en el servidor.");
+      setResult(`Copia "${res.name}" guardada exitosamente.`);
       setShowResultModal(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : "No se pudo guardar como.");
@@ -576,6 +624,7 @@ export default function LabelWorkbench() {
   };
 
   const loadDocument = async (id: string) => {
+    if (!(await confirmDiscardChanges())) return;
     try {
       const full = await editorApi.getDocument(id);
       const kind = full.kind as DocKind;
@@ -599,7 +648,7 @@ export default function LabelWorkbench() {
     }
   };
 
-  const exportDoc = async () => {
+  const exportSaeLabels = async () => {
     setLoading(true);
     try {
       let xmlToExport = xml;
@@ -688,13 +737,14 @@ export default function LabelWorkbench() {
     setPingStatus("");
   };
 
-  const openNewDocumentTypeModal = () => {
+  const openNewDocumentTypeModal = async () => {
+    if (!(await confirmDiscardChanges())) return;
     setShowNewTypeModal(true);
   };
 
-  const selectNewDocumentType = (kind: DocKind) => {
+  const selectNewDocumentType = async (kind: DocKind) => {
+    if (!(await confirmDiscardChanges())) return;
     setNewDocumentDraft((prev) => ({ ...prev, kind }));
-    setSelectedPresetId("custom");
     setShowNewTypeModal(false);
     setShowNewConfigModal(true);
   };
@@ -716,22 +766,94 @@ export default function LabelWorkbench() {
     }));
   };
 
-  const createConfiguredDocument = () => {
-    if (!newDocumentDraft.name.trim()) {
-      setError("Nombre requerido para el documento.");
+  const createConfiguredDocument = async (draft: NewDocumentDraft, initialXml: string | null = null) => {
+    try {
+      setLoading(true);
+      const xmlToSave = initialXml || buildNewDocumentXml(draft);
+      
+      // Save directly to backend
+      const res = await editorApi.saveDocument({
+        name: draft.name.trim() || "Nueva etiqueta",
+        kind: draft.kind,
+        xml: xmlToSave
+      });
+
+      setLabelDocId(res.id);
+      setLabelDocName(res.name);
+      setLabelXml(xmlToSave);
+      setDocKind(draft.kind);
+      
+      setAction(draft.kind === "sae" ? "parse" : "convert-from-glabels");
+      setError("");
+      setResult("");
+      setPingStatus("");
+      setShowNewConfigModal(false);
+      void refreshDocuments();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Error al crear documento en el servidor.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const createConfiguredTicket = async () => {
+    if (!newTicketDraft.name.trim()) {
+      setError("Nombre requerido para el tiquete.");
       return;
     }
-    if (newDocumentDraft.width <= 0 || newDocumentDraft.height <= 0) {
-      setError("Ancho y alto deben ser mayores a cero.");
-      return;
+    
+    try {
+      setLoading(true);
+      const charWidth = newTicketDraft.width === 58 ? 32 : 42;
+      
+      let initialXml = "";
+      if (pendingTemplateXml) {
+        // Update width in template XML
+        initialXml = pendingTemplateXml.replace(/<setup width="[^"]*"\/>/, `<setup width="${charWidth}"/>`);
+      } else {
+        initialXml = `<?xml version="1.0" encoding="utf-8"?>
+<saetickets version="1.0">
+  <setup width="${charWidth}"/>
+  <commands>
+    <text align="center" bold="true" size="large">${newTicketDraft.name.toUpperCase()}</text>
+    <separator char="="/>
+    <text align="center" size="small">Fecha: \${DATE}</text>
+    <separator char="-"/>
+    <each listVar="ITEMS" header="true">
+      <column field="QTY" label="Cant" width="5" align="left"/>
+      <column field="DESC" label="Articulo" width="auto" align="left"/>
+      <column field="TOTAL" label="Total" width="10" align="right"/>
+    </each>
+    <separator char="="/>
+    <text align="right" bold="true" size="large">TOTAL: \${TOTAL}</text>
+    <feed lines="2"/>
+    <cut/>
+  </commands>
+</saetickets>`;
+      }
+      
+      // Save directly to backend
+      const res = await editorApi.saveDocument({
+        name: newTicketDraft.name.trim(),
+        kind: 'saetickets',
+        xml: initialXml
+      });
+
+      setTicketDocId(res.id);
+      setTicketDocName(res.name);
+      setTicketXml(initialXml);
+      setDocKind("saetickets");
+      
+      setError("");
+      setResult("");
+      setPendingTemplateXml(null);
+      setShowNewTicketConfigModal(false);
+      void refreshDocuments();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Error al crear tiquete en el servidor.");
+    } finally {
+      setLoading(false);
     }
-    const xmlDraft = buildNewDocumentXml(newDocumentDraft);
-    setXml(xmlDraft);
-    setAction(newDocumentDraft.kind === "sae" ? "parse" : "convert-from-glabels");
-    setError("");
-    setResult("");
-    setPingStatus("");
-    setShowNewConfigModal(false);
   };
 
   const addHistoryItem = (item: HistoryItem) => {
@@ -990,9 +1112,9 @@ export default function LabelWorkbench() {
   }, []);
 
   return (
-    <section className="panel visualMode">
+    <section className="panel visualMode" data-theme={darkMode ? "dark" : "light"}>
       <div className="studioWrapper">
-        <nav className="appMenu" data-tauri-drag-region>
+        <nav className="appMenu" data-tauri-drag-region style={{ overflow: 'visible' }}>
           <details className="menuDropdown" open={activeMenu === 'archivo'}>
             <summary className="menuItem" style={{ textAlign: 'left' }} onClick={(e) => { e.preventDefault(); toggleMenu('archivo'); }}>Archivo</summary>
             <div className="menuDropdownList">
@@ -1015,14 +1137,8 @@ export default function LabelWorkbench() {
               <button type="button" className="menuDropdownItem" onClick={() => { saveDoc(); closeAllMenus(); }}>
                 Guardar
               </button>
-              <button type="button" className="menuDropdownItem" onClick={() => { setSaveAsName(docName + " (Copia)"); setSaveAsModalOpen(true); closeAllMenus(); }}>
-                Guardar como...
-              </button>
-              <button type="button" className="menuDropdownItem" onClick={() => { exportDoc(); closeAllMenus(); }}>
-                Exportar
-              </button>
-              <button type="button" className="menuDropdownItem danger" style={{ color: '#ef4444' }} onClick={() => { if (docId) deleteDocument(docId); closeAllMenus(); }} disabled={!docId}>
-                Eliminar documento
+              <button type="button" className="menuDropdownItem" onClick={() => { saveAsDoc(); closeAllMenus(); }}>
+                Guardar como (Copia)
               </button>
               <div className="menuDivider" />
               <details className="menuSubDropdown" open={activeSubMenu === 'labels'}>
@@ -1286,97 +1402,127 @@ export default function LabelWorkbench() {
       {showTemplatesGallery && (
         <Portal>
         <div className="modalBackdrop">
-          <div className="modalCard" onClick={(e) => e.stopPropagation()} style={{ width: '800px', maxWidth: '95vw', background: '#f8fafc' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+          <div className="modalCard" onClick={(e) => e.stopPropagation()} style={{ width: '900px', maxWidth: '95vw', maxHeight: '90vh' }}>
+            <div style={{ padding: '2rem', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg-tabs)' }}>
               <div>
-                <h2 style={{ margin: 0, fontSize: '1.5rem' }}>Galería de Plantillas</h2>
-                <p style={{ margin: 0, fontSize: '0.85rem', color: '#64748b' }}>Selecciona un diseño base para tu nuevo documento</p>
+                <h2 style={{ margin: 0, fontSize: '1.75rem', fontWeight: 800, letterSpacing: '-0.02em' }}>Galería de Plantillas</h2>
+                <p style={{ margin: '0.25rem 0 0', fontSize: '0.9rem', color: 'var(--muted)' }}>Selecciona un punto de partida para tu nuevo diseño</p>
               </div>
-              <button className="winBtn" onClick={() => setShowTemplatesGallery(false)} style={{ background: '#eee', borderRadius: '50%', padding: '8px' }}>✕</button>
+              <button className="winBtn" onClick={() => setShowTemplatesGallery(false)} style={{ background: 'rgba(0,0,0,0.05)', borderRadius: '50%', width: '36px', height: '36px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2rem' }}>
-              {/* Categoría: Tiquetes y Órdenes */}
+            <div style={{ padding: '2rem', overflowY: 'auto', display: 'grid', gridTemplateColumns: '1.2fr 1.8fr', gap: '2.5rem' }}>
+              {/* Categoría: Tiquetes */}
               <section>
-                <h3 style={{ fontSize: '0.75rem', fontWeight: 800, color: '#16a34a', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '1rem', borderBottom: '2px solid #dcfce7', paddingBottom: '0.5rem' }}>
-                  🎫 Tiquetes y Órdenes (POS)
-                </h3>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '1rem' }}>
-                  <button type="button" style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '1.25rem', textAlign: 'left', cursor: 'pointer', transition: 'all 0.2s' }} 
-                    onMouseOver={(e) => e.currentTarget.style.borderColor = '#16a34a'}
-                    onMouseOut={(e) => e.currentTarget.style.borderColor = '#e2e8f0'}
-                    onClick={() => { selectNewDocumentType("saetickets"); setShowTemplatesGallery(false); }}>
-                    <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
-                      <span style={{ fontSize: '2rem' }}>📄</span>
-                      <div>
-                        <div style={{ fontWeight: 700, fontSize: '0.95rem' }}>Tiquete Estándar</div>
-                        <div style={{ fontSize: '0.75rem', color: '#64748b' }}>Diseño básico de 80mm para ventas generales</div>
-                      </div>
-                    </div>
-                  </button>
-
-                  <button type="button" style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '1.25rem', textAlign: 'left', cursor: 'pointer', transition: 'all 0.2s' }}
-                    onMouseOver={(e) => e.currentTarget.style.borderColor = '#16a34a'}
-                    onMouseOut={(e) => e.currentTarget.style.borderColor = '#e2e8f0'}
-                    onClick={() => {
-                      selectNewDocumentType("saetickets");
-                      setTimeout(() => {
-                        setXml(`<?xml version="1.0" encoding="utf-8"?>
-<saetickets version="1.0">
-  <setup width="42"/>
-  <commands>
-    <text align="center" bold="true" size="extra-large">ORDEN #\${ID}</text>
-    <separator char="="/>
-    <text align="left" bold="false" size="normal">Mesa: \${MESA}</text>
-    <separator char="-"/>
-    <each listVar="ITEMS" header="false" childField="EXTRAS">
-      <column field="QTY" label="" width="4" align="left"/>
-      <column field="DESC" label="" width="auto" align="left"/>
-    </each>
-    <separator char="-"/>
-    <feed lines="2"/>
-    <cut/>
-  </commands>
-</saetickets>`);
-                        setDocName("Orden de Cocina");
-                      }, 50);
-                      setShowTemplatesGallery(false);
-                    }}>
-                    <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
-                      <span style={{ fontSize: '2rem' }}>🍳</span>
-                      <div>
-                        <div style={{ fontWeight: 700, fontSize: '0.95rem' }}>Orden de Cocina</div>
-                        <div style={{ fontSize: '0.75rem', color: '#64748b' }}>Optimizado para barra y cocina con sub-items para extras</div>
-                      </div>
-                    </div>
-                  </button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1.5rem' }}>
+                  <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: 'rgba(22, 163, 74, 0.1)', color: '#16a34a', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect x="2" y="4" width="20" height="16" rx="2"/><line x1="6" y1="8" x2="6" y2="8"/><line x1="6" y1="12" x2="6" y2="12"/><line x1="6" y1="16" x2="6" y2="16"/></svg>
+                  </div>
+                  <h3 style={{ margin: 0, fontSize: '0.85rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text)' }}>Tiquetes POS</h3>
+                </div>
+                
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                  {templates.filter(t => t.kind === 'saetickets').length > 0 ? (
+                    templates.filter(t => t.kind === 'saetickets').map(t => (
+                      <button 
+                        key={t.id}
+                        type="button"
+                        style={{ 
+                          background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '12px', 
+                          padding: '1.25rem', textAlign: 'left', cursor: 'pointer', transition: 'all 0.2s ease',
+                          display: 'flex', gap: '1.25rem', alignItems: 'center'
+                        }}
+                        onMouseOver={(e) => { e.currentTarget.style.borderColor = '#16a34a'; e.currentTarget.style.background = 'rgba(22, 163, 74, 0.02)'; e.currentTarget.style.transform = 'translateX(4px)'; }}
+                        onMouseOut={(e) => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.background = 'var(--bg-card)'; e.currentTarget.style.transform = 'none'; }}
+                        onClick={() => {
+                          setPendingTemplateXml(t.xml);
+                          setNewTicketDraft(p => ({ ...p, name: t.name }));
+                          setShowTemplatesGallery(false);
+                          setShowNewTicketConfigModal(true);
+                        }}
+                      >
+                        <div style={{ fontSize: '2rem', filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.1))' }}>{t.icon || '📄'}</div>
+                        <div>
+                          <div style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--text)', marginBottom: '0.2rem' }}>{t.name}</div>
+                          <div style={{ fontSize: '0.75rem', color: 'var(--muted)', lineHeight: 1.4 }}>{t.description}</div>
+                        </div>
+                      </button>
+                    ))
+                  ) : (
+                    <div style={{ padding: '2rem', textAlign: 'center', opacity: 0.5 }}>Cargando tiquetes...</div>
+                  )}
                 </div>
               </section>
 
               {/* Categoría: Etiquetas */}
               <section>
-                <h3 style={{ fontSize: '0.75rem', fontWeight: 800, color: '#3b82f6', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '1rem', borderBottom: '2px solid #dbeafe', paddingBottom: '0.5rem' }}>
-                  🏷️ Etiquetas y Logística
-                </h3>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '0.75rem' }}>
-                  {LABEL_PRESETS.map(p => (
-                    <button key={p.id} type="button" style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '0.75rem 1rem', textAlign: 'left', cursor: 'pointer', transition: 'all 0.15s' }}
-                      onMouseOver={(e) => e.currentTarget.style.borderColor = '#3b82f6'}
-                      onMouseOut={(e) => e.currentTarget.style.borderColor = '#e2e8f0'}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1.5rem' }}>
+                  <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: 'rgba(59, 130, 246, 0.1)', color: '#3b82f6', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
+                  </div>
+                  <h3 style={{ margin: 0, fontSize: '0.85rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text)' }}>Etiquetas y Logística</h3>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                  {/* Dynamic Templates for Labels */}
+                  {templates.filter(t => t.kind === 'sae' || t.kind === 'glabels').map(t => (
+                    <button key={t.id} type="button" 
+                      style={{ 
+                        background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '10px', 
+                        padding: '1.25rem', textAlign: 'left', cursor: 'pointer', transition: 'all 0.15s ease',
+                        display: 'flex', gap: '1rem', alignItems: 'center', gridColumn: '1 / -1'
+                      }}
+                      onMouseOver={(e) => { e.currentTarget.style.borderColor = '#3b82f6'; e.currentTarget.style.background = 'rgba(59, 130, 246, 0.02)'; e.currentTarget.style.transform = 'translateX(4px)'; }}
+                      onMouseOut={(e) => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.background = 'var(--bg-card)'; e.currentTarget.style.transform = 'none'; }}
                       onClick={() => {
-                        setNewDocumentDraft({ ...newDocumentDraft, ...p, kind: "sae" });
-                        selectNewDocumentType("sae");
+                        createConfiguredDocument(newDocumentDraft, t.xml);
                         setShowTemplatesGallery(false);
                       }}>
-                      <div style={{ fontWeight: 600, fontSize: '0.85rem' }}>{p.name}</div>
-                      <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>{p.width}x{p.height}{p.unit} • {p.brand}</div>
+                      <div style={{ fontSize: '1.75rem' }}>{t.icon || '🏷️'}</div>
+                      <div>
+                        <div style={{ fontWeight: 700, fontSize: '0.9rem', color: 'var(--text)' }}>{t.name}</div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>{t.description}</div>
+                      </div>
+                    </button>
+                  ))}
+
+                  {/* Divider for presets if there are templates */}
+                  {templates.filter(t => t.kind === 'sae' || t.kind === 'glabels').length > 0 && (
+                    <div style={{ gridColumn: '1 / -1', margin: '0.5rem 0', display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                      <div style={{ height: '1px', flex: 1, background: 'var(--border)', opacity: 0.5 }}></div>
+                      <span style={{ fontSize: '0.65rem', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Tamaños Estándar</span>
+                      <div style={{ height: '1px', flex: 1, background: 'var(--border)', opacity: 0.5 }}></div>
+                    </div>
+                  )}
+
+                  {LABEL_PRESETS.map(p => (
+                    <button key={p.id} type="button" 
+                      style={{ 
+                        background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '10px', 
+                        padding: '1rem', textAlign: 'left', cursor: 'pointer', transition: 'all 0.15s ease',
+                        display: 'flex', flexDirection: 'column', gap: '0.4rem'
+                      }}
+                      onMouseOver={(e) => { e.currentTarget.style.borderColor = '#3b82f6'; e.currentTarget.style.background = 'rgba(59, 130, 246, 0.02)'; }}
+                      onMouseOut={(e) => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.background = 'var(--bg-card)'; }}
+                      onClick={() => {
+                        setNewDocumentDraft({ ...newDocumentDraft, ...p, kind: "sae" });
+                        setSelectedPresetId(p.id);
+                        setShowTemplatesGallery(false);
+                        setShowNewConfigModal(true);
+                      }}>
+                      <div style={{ fontWeight: 700, fontSize: '0.85rem', color: 'var(--text)' }}>{p.name}</div>
+                      <div style={{ fontSize: '0.7rem', color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                        <span style={{ padding: '2px 6px', background: 'rgba(0,0,0,0.05)', borderRadius: '4px' }}>{p.width}x{p.height}{p.unit}</span>
+                        <span>•</span>
+                        <span>{p.brand}</span>
+                      </div>
                     </button>
                   ))}
                 </div>
               </section>
             </div>
             
-            <div style={{ marginTop: '2rem', display: 'flex', justifyContent: 'flex-end' }}>
+            <div style={{ padding: '1.25rem 2rem', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end', background: 'var(--bg-tabs)' }}>
               <button type="button" className="secondary" onClick={() => setShowTemplatesGallery(false)}>Cerrar Galería</button>
             </div>
           </div>
@@ -1387,111 +1533,50 @@ export default function LabelWorkbench() {
       {showNewTypeModal && (
         <Portal>
         <div className="modalBackdrop">
-          <div className="modalCard" onClick={(e) => e.stopPropagation()} style={{ width: '560px', maxWidth: '95vw', padding: '2rem' }}>
-            <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
-              <h2 style={{ margin: '0 0 0.5rem', fontSize: '1.75rem', fontWeight: 800 }}>Nuevo Documento</h2>
-              <p style={{ margin: 0, color: 'var(--muted)', fontSize: '0.95rem' }}>Selecciona el tipo de proyecto para comenzar</p>
+          <div className="modalCard" onClick={(e) => e.stopPropagation()} style={{ width: '800px', maxWidth: '95vw', padding: '2.5rem' }}>
+            <div style={{ textAlign: 'center', marginBottom: '2.5rem' }}>
+              <h2 style={{ margin: '0 0 0.5rem', fontSize: '2rem', fontWeight: 800 }}>Nuevo Documento</h2>
+              <p style={{ margin: 0, color: 'var(--muted)', fontSize: '1rem' }}>Selecciona el tipo de proyecto para comenzar</p>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.25rem' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '2rem' }}>
               {/* Opción: Etiqueta SAE */}
-              <button type="button" 
-                style={{ 
-                  background: 'var(--bg-card)', border: '2px solid var(--border)', borderRadius: '16px', 
-                  padding: '1.5rem', textAlign: 'center', cursor: 'pointer', transition: 'all 0.2s',
-                  display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem'
-                }}
-                onMouseOver={(e) => { e.currentTarget.style.borderColor = 'var(--accent)'; e.currentTarget.style.transform = 'translateY(-4px)'; e.currentTarget.style.boxShadow = '0 10px 20px rgba(0,0,0,0.05)'; }}
-                onMouseOut={(e) => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = 'none'; }}
-                onClick={() => {
-                  setNewDocumentDraft({ ...newDocumentDraft, ...LABEL_PRESETS[0], kind: "sae" });
-                  selectNewDocumentType("sae");
-                  setShowNewTypeModal(false);
-                }}>
-                <div style={{ width: '48px', height: '48px', borderRadius: '12px', background: '#f0fdfa', color: '#0f766e', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.5rem' }}>🏷️</div>
-                <div>
-                  <div style={{ fontWeight: 700, fontSize: '1rem', marginBottom: '0.25rem' }}>Etiqueta SAE</div>
-                  <div style={{ fontSize: '0.75rem', color: 'var(--muted)', lineHeight: 1.4 }}>ZPL/TSPL Estándar</div>
-                </div>
-              </button>
-
-              {/* Opción: Tiquete Estándar */}
-              <button type="button" 
-                style={{ 
-                  background: 'var(--bg-card)', border: '2px solid var(--border)', borderRadius: '16px', 
-                  padding: '1.5rem', textAlign: 'center', cursor: 'pointer', transition: 'all 0.2s',
-                  display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem'
-                }}
-                onMouseOver={(e) => { e.currentTarget.style.borderColor = 'var(--accent)'; e.currentTarget.style.transform = 'translateY(-4px)'; e.currentTarget.style.boxShadow = '0 10px 20px rgba(0,0,0,0.05)'; }}
-                onMouseOut={(e) => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = 'none'; }}
-                onClick={() => { selectNewDocumentType("saetickets"); setShowNewTypeModal(false); }}>
-                <div style={{ width: '48px', height: '48px', borderRadius: '12px', background: '#f0f9ff', color: '#0369a1', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.5rem' }}>🎟️</div>
-                <div>
-                  <div style={{ fontWeight: 700, fontSize: '1rem', marginBottom: '0.25rem' }}>Tiquete POS</div>
-                  <div style={{ fontSize: '0.75rem', color: 'var(--muted)', lineHeight: 1.4 }}>Punto de Venta 80mm</div>
-                </div>
-              </button>
-
-              {/* Opción: Orden de Cocina */}
-              <button type="button" 
-                style={{ 
-                  background: 'var(--bg-card)', border: '2px solid var(--border)', borderRadius: '16px', 
-                  padding: '1.5rem', textAlign: 'center', cursor: 'pointer', transition: 'all 0.2s',
-                  display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem'
-                }}
-                onMouseOver={(e) => { e.currentTarget.style.borderColor = 'var(--accent)'; e.currentTarget.style.transform = 'translateY(-4px)'; e.currentTarget.style.boxShadow = '0 10px 20px rgba(0,0,0,0.05)'; }}
-                onMouseOut={(e) => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = 'none'; }}
-                onClick={() => {
-                  selectNewDocumentType("saetickets");
-                  setTimeout(() => {
-                    setXml(`<?xml version="1.0" encoding="utf-8"?>
-<saetickets version="1.0">
-  <setup width="42"/>
-  <commands>
-    <text align="center" bold="true" size="extra-large">ORDEN #\${ID}</text>
-    <separator char="="/>
-    <text align="left" bold="false" size="normal">Mesa: \${MESA}</text>
-    <separator char="-"/>
-    <each listVar="ITEMS" header="false">
-      <column field="QTY" label="" width="4" align="left"/>
-      <column field="DESC" label="" width="auto" align="left"/>
-    </each>
-    <separator char="-"/>
-    <feed lines="2"/>
-    <cut/>
-  </commands>
-</saetickets>`);
-                    setDocName("Orden de Cocina");
-                  }, 50);
-                  setShowNewTypeModal(false);
-                }}>
-                <div style={{ width: '48px', height: '48px', borderRadius: '12px', background: '#fefce8', color: '#a16207', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.5rem' }}>🍳</div>
-                <div>
-                  <div style={{ fontWeight: 700, fontSize: '1rem', marginBottom: '0.25rem' }}>Orden Cocina</div>
-                  <div style={{ fontSize: '0.75rem', color: 'var(--muted)', lineHeight: 1.4 }}>Comandas y Pedidos</div>
-                </div>
-              </button>
-
-              {/* Opción: Configuración Personalizada */}
-              <button type="button" 
-                style={{ 
-                  background: 'var(--bg-card)', border: '2px solid var(--border)', borderRadius: '16px', 
-                  padding: '1.5rem', textAlign: 'center', cursor: 'pointer', transition: 'all 0.2s',
-                  display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem'
-                }}
-                onMouseOver={(e) => { e.currentTarget.style.borderColor = 'var(--accent)'; e.currentTarget.style.transform = 'translateY(-4px)'; e.currentTarget.style.boxShadow = '0 10px 20px rgba(0,0,0,0.05)'; }}
-                onMouseOut={(e) => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = 'none'; }}
-                onClick={() => {
-                  setNewDocumentDraft(p => ({ ...p, kind: "sae", name: "Nuevo Documento" }));
-                  setShowNewTypeModal(false);
-                  setShowNewConfigModal(true);
-                }}>
-                <div style={{ width: '48px', height: '48px', borderRadius: '12px', background: '#f5f3ff', color: '#5b21b6', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.5rem' }}>⚙️</div>
-                <div>
-                  <div style={{ fontWeight: 700, fontSize: '1rem', marginBottom: '0.25rem' }}>Personalizado</div>
-                  <div style={{ fontSize: '0.75rem', color: 'var(--muted)', lineHeight: 1.4 }}>Configurar dimensiones</div>
-                </div>
-              </button>
+                  <button type="button" style={{ 
+                    flex: 1, background: 'var(--bg-card)', border: '1px solid var(--border)', 
+                    borderRadius: '16px', padding: '2rem 1.5rem', textAlign: 'center', 
+                    cursor: 'pointer', transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                    display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem',
+                    boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)', position: 'relative', overflow: 'hidden'
+                  }} 
+                    onMouseOver={(e) => { e.currentTarget.style.transform = 'translateY(-5px)'; e.currentTarget.style.borderColor = 'var(--accent)'; e.currentTarget.style.boxShadow = '0 10px 15px -3px rgba(0, 0, 0, 0.1)'; }}
+                    onMouseOut={(e) => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1)'; }}
+                    onClick={() => {
+                      setNewDocumentDraft({ ...newDocumentDraft, ...LABEL_PRESETS[0], kind: "sae" });
+                      setShowNewTypeModal(false);
+                      setShowNewConfigModal(true);
+                    }}>
+                    <div style={{ fontSize: '3rem', marginBottom: '0.5rem', filter: 'drop-shadow(0 4px 6px rgba(0,0,0,0.1))' }}>🏷️</div>
+                    <div style={{ textAlign: 'center' }}>
+                      <div style={{ fontWeight: 800, fontSize: '1.25rem', color: 'var(--text)', marginBottom: '0.4rem' }}>Etiqueta Vacía</div>
+                      <div style={{ fontSize: '0.85rem', color: 'var(--muted)', lineHeight: 1.4 }}>Diseño libre con soporte para campos dinámicos</div>
+                    </div>
+                  </button>
+                  <button type="button" style={{ 
+                    flex: 1, background: 'var(--bg-card)', border: '1px solid var(--border)', 
+                    borderRadius: '16px', padding: '2rem 1.5rem', textAlign: 'center', 
+                    cursor: 'pointer', transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                    display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem',
+                    boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)', position: 'relative', overflow: 'hidden'
+                  }} 
+                    onMouseOver={(e) => { e.currentTarget.style.transform = 'translateY(-5px)'; e.currentTarget.style.borderColor = 'var(--accent)'; e.currentTarget.style.boxShadow = '0 10px 15px -3px rgba(0, 0, 0, 0.1)'; }}
+                    onMouseOut={(e) => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1)'; }}
+                    onClick={() => setShowNewTicketConfigModal(true) /* Abrir el nuevo modal de tiquete directamente */}>
+                    <div style={{ fontSize: '3rem', marginBottom: '0.5rem', filter: 'drop-shadow(0 4px 6px rgba(0,0,0,0.1))' }}>🎫</div>
+                    <div style={{ textAlign: 'center' }}>
+                      <div style={{ fontWeight: 800, fontSize: '1.25rem', color: 'var(--text)', marginBottom: '0.4rem' }}>Tiquete Vacío</div>
+                      <div style={{ fontSize: '0.85rem', color: 'var(--muted)', lineHeight: 1.4 }}>Formato ESC/POS para impresión térmica directa</div>
+                    </div>
+                  </button>
             </div>
 
             <div style={{ marginTop: '2rem', display: 'flex', justifyContent: 'center' }}>
@@ -1548,15 +1633,73 @@ export default function LabelWorkbench() {
                 Part
                 <input value={newDocumentDraft.part} onChange={(e) => setNewDocumentDraft((p) => ({ ...p, part: e.target.value }))} />
               </label>
-              <label className="menuField">
-                Size
-                <input value={newDocumentDraft.size} onChange={(e) => setNewDocumentDraft((p) => ({ ...p, size: e.target.value }))} />
-              </label>
             </div>
-            <div className="modalActions">
-              <button type="button" className="secondary" onClick={() => { setShowNewConfigModal(false); setShowNewTypeModal(true); }}>Atras</button>
+            
+            <div style={{ marginTop: '2rem', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
               <button type="button" className="secondary" onClick={() => setShowNewConfigModal(false)}>Cancelar</button>
-              <button type="button" onClick={createConfiguredDocument}>Crear documento</button>
+              <button type="button" className="primary" onClick={() => createConfiguredDocument(newDocumentDraft)}>Comenzar Diseño</button>
+            </div>
+          </div>
+        </div>
+        </Portal>
+      )}
+
+      {showNewTicketConfigModal && (
+        <Portal>
+        <div className="modalBackdrop">
+          <div className="modalCard" onClick={(e) => e.stopPropagation()} style={{ width: '450px', padding: '2rem' }}>
+            <h2 style={{ margin: '0 0 1.5rem', fontSize: '1.5rem' }}>Configurar Tiquete</h2>
+            
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+              <label className="menuField">
+                Nombre del Tiquete
+                <input 
+                  autoFocus
+                  style={{ fontSize: '1.1rem', padding: '0.75rem' }}
+                  value={newTicketDraft.name} 
+                  onChange={(e) => setNewTicketDraft((p) => ({ ...p, name: e.target.value }))} 
+                  placeholder="Ej: Tiquete de Venta"
+                />
+              </label>
+
+              <div>
+                <span style={{ display: 'block', fontSize: '0.75rem', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', marginBottom: '0.75rem' }}>Tamaño de Papel</span>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                  <button type="button" 
+                    onClick={() => setNewTicketDraft(p => ({ ...p, width: 80 }))}
+                    style={{ 
+                      padding: '1rem', borderRadius: '12px', border: '2px solid',
+                      borderColor: newTicketDraft.width === 80 ? 'var(--accent)' : 'var(--border)',
+                      background: newTicketDraft.width === 80 ? 'rgba(59, 130, 246, 0.05)' : 'transparent',
+                      cursor: 'pointer', transition: 'all 0.2s'
+                    }}>
+                    <div style={{ fontWeight: 700 }}>80mm</div>
+                    <div style={{ fontSize: '0.7rem', opacity: 0.6 }}>42 caracteres</div>
+                  </button>
+                  <button type="button" 
+                    onClick={() => setNewTicketDraft(p => ({ ...p, width: 58 }))}
+                    style={{ 
+                      padding: '1rem', borderRadius: '12px', border: '2px solid',
+                      borderColor: newTicketDraft.width === 58 ? 'var(--accent)' : 'var(--border)',
+                      background: newTicketDraft.width === 58 ? 'rgba(59, 130, 246, 0.05)' : 'transparent',
+                      cursor: 'pointer', transition: 'all 0.2s'
+                    }}>
+                    <div style={{ fontWeight: 700 }}>58mm</div>
+                    <div style={{ fontSize: '0.7rem', opacity: 0.6 }}>32 caracteres</div>
+                  </button>
+                </div>
+              </div>
+
+              <div style={{ background: 'rgba(255, 255, 255, 0.03)', padding: '1rem', borderRadius: '8px', border: '1px dashed var(--border)' }}>
+                <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--muted)', lineHeight: 1.4 }}>
+                  Los tiquetes utilizan <b>ESC/POS</b> y se ajustan automáticamente al largo del contenido.
+                </p>
+              </div>
+            </div>
+
+            <div style={{ marginTop: '2.5rem', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+              <button type="button" className="secondary" onClick={() => setShowNewTicketConfigModal(false)}>Cancelar</button>
+              <button type="button" className="primary" onClick={createConfiguredTicket}>Crear Tiquete</button>
             </div>
           </div>
         </div>
@@ -1625,7 +1768,7 @@ export default function LabelWorkbench() {
       {showOpenDocModal && (
         <Portal>
         <div className="modalBackdrop">
-          <div className="modalCard" onClick={(e) => e.stopPropagation()} style={{ width: '600px', maxWidth: '95vw', background: '#f8fafc' }}>
+          <div className="modalCard" onClick={(e) => e.stopPropagation()} style={{ width: '600px', maxWidth: '95vw' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
               <h3 style={{ margin: 0 }}>Abrir documento de base de datos</h3>
               <button className="winBtn" onClick={() => setShowOpenDocModal(false)}>✕</button>
@@ -1637,29 +1780,38 @@ export default function LabelWorkbench() {
                 value={openDocSearch}
                 onChange={(e) => setOpenDocSearch(e.target.value)}
                 autoFocus
-                style={{ flex: 1, padding: '0.75rem 1rem', borderRadius: '10px', border: '1px solid var(--border)' }}
+                style={{ flex: 1, padding: '0.75rem 1rem', borderRadius: '10px', border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text)' }}
               />
             </div>
-            <div style={{ maxHeight: '400px', overflowY: 'auto', border: '1px solid #e2e8f0', borderRadius: '8px', background: '#fff' }}>
+            <div style={{ maxHeight: '400px', overflowY: 'auto', border: '1px solid var(--border)', borderRadius: '8px', background: 'var(--bg-card)' }}>
               {documents.filter(d => d.name.toLowerCase().includes(openDocSearch.toLowerCase())).length > 0 ? (
                 documents.filter(d => d.name.toLowerCase().includes(openDocSearch.toLowerCase())).map(d => (
-                  <button 
-                    key={d.id} 
-                    type="button" 
-                    onClick={() => { loadDocument(d.id); setShowOpenDocModal(false); }}
+                  <div 
+                    key={d.id}
                     style={{
-                      width: '100%', textAlign: 'left', padding: '0.8rem 1rem', background: 'none', border: '0',
+                      width: '100%', padding: '0.8rem 1rem', background: 'none', border: '0',
                       borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', gap: '0.75rem',
-                      cursor: 'pointer', transition: 'background 0.2s'
+                      transition: 'background 0.2s', color: 'var(--text)',
+                      cursor: 'default'
                     }}
-                    onMouseOver={(e) => e.currentTarget.style.background = '#f8fafc'}
+                    onMouseOver={(e) => e.currentTarget.style.background = 'rgba(0,0,0,0.05)'}
                     onMouseOut={(e) => e.currentTarget.style.background = 'none'}
                   >
-                    <span style={{ fontSize: '1.2rem' }}>{d.kind === 'saetickets' ? '🎫' : '🏷️'}</span>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontWeight: 600, fontSize: '0.9rem', color: '#1e293b' }}>{d.name}</div>
-                      <div style={{ fontSize: '0.75rem', color: '#64748b' }}>Tipo: {d.kind} • Actualizado: {new Date(d.updatedAtUtc).toLocaleString()}</div>
-                    </div>
+                    <button
+                      type="button"
+                      onClick={() => { loadDocument(d.id); setShowOpenDocModal(false); }}
+                      style={{
+                        background: 'none', border: 'none', padding: 0, margin: 0,
+                        display: 'flex', alignItems: 'center', gap: '0.75rem', flex: 1,
+                        cursor: 'pointer', textAlign: 'left', color: 'inherit', font: 'inherit'
+                      }}
+                    >
+                      <span style={{ fontSize: '1.2rem' }}>{d.kind === 'saetickets' ? '🎫' : '🏷️'}</span>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--text)' }}>{d.name}</div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>Tipo: {d.kind} • Actualizado: {new Date(d.updatedAtUtc).toLocaleString()}</div>
+                      </div>
+                    </button>
                     <button 
                       type="button" 
                       onClick={(e) => { e.stopPropagation(); deleteDocument(d.id); }}
@@ -1671,7 +1823,7 @@ export default function LabelWorkbench() {
                     >
                       🗑️
                     </button>
-                  </button>
+                  </div>
                 ))
               ) : (
                 <div style={{ padding: '2rem', textAlign: 'center', color: '#94a3b8' }}>No se encontraron documentos</div>
@@ -1761,7 +1913,7 @@ export default function LabelWorkbench() {
           font-size: 0.9rem;
           padding: 0.65rem 0.75rem;
           box-sizing: border-box;
-          background: #fff;
+          background: var(--bg-card);
           transition: all 0.2s ease;
           color: var(--text);
         }
@@ -1831,14 +1983,14 @@ export default function LabelWorkbench() {
           transform: translateY(0);
         }
         button.secondary {
-          background: #ffffff;
+          background: var(--bg-card);
           color: var(--text);
           border: 1px solid var(--border);
           box-shadow: 0 1px 2px rgba(0,0,0,0.05);
         }
         button.secondary:hover:not(:disabled) {
-          background: #f8fafc;
-          border-color: #cbd5e1;
+          background: var(--bg-tabs);
+          border-color: var(--border);
         }
         button.active {
           background: var(--accent);
@@ -1875,7 +2027,7 @@ export default function LabelWorkbench() {
           border: 1px solid var(--border);
           border-radius: 10px;
           overflow: hidden;
-          background: #fff;
+          background: var(--bg-card);
         }
         .history li {
           display: grid;
@@ -1976,7 +2128,7 @@ export default function LabelWorkbench() {
           top: 100%;
           left: 0;
           margin-top: 0.5rem;
-          background: #ffffff;
+          background: var(--bg-card);
           border: 1px solid var(--border);
           border-radius: 8px;
           box-shadow: 0 10px 25px rgba(0,0,0,0.1);
@@ -2024,7 +2176,7 @@ export default function LabelWorkbench() {
         }
 
         /* Modal Properties */
-        .modalOverlay {
+        .modalBackdrop {
           position: fixed;
           inset: 0;
           background: rgba(15, 23, 42, 0.65);
@@ -2035,8 +2187,9 @@ export default function LabelWorkbench() {
           justify-content: center;
           padding: 2rem;
         }
-        .propertiesModal {
-          background: #ffffff;
+        .modalCard {
+          background: var(--bg-card, #ffffff);
+          color: var(--text);
           border-radius: 12px;
           box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
           width: 100%;
@@ -2045,6 +2198,10 @@ export default function LabelWorkbench() {
           flex-direction: column;
           overflow: hidden;
           animation: modalSlide 0.3s ease-out;
+          border: 1px solid var(--border);
+        }
+        .propertiesModal {
+          /* Usar la clase modalCard en el JSX directamente */
         }
         @keyframes modalSlide {
           from { transform: translateY(20px); opacity: 0; }
@@ -2056,13 +2213,59 @@ export default function LabelWorkbench() {
           display: flex;
           justify-content: space-between;
           align-items: center;
-          background: #f8fafc;
+          background: var(--bg-tabs);
         }
         .modalHeader h3 {
           margin: 0;
           font-size: 1.1rem;
           color: var(--text);
           font-weight: 700;
+        }
+        
+        /* Dark Mode Premium Refinement */
+        [data-theme="dark"] {
+          --bg-card: #1e293b;
+          --bg-tabs: #0f172a;
+          --border: #334155;
+          --text: #f1f5f9;
+          --muted: #94a3b8;
+          --hover-bg: #334155;
+        }
+
+        [data-theme="dark"] .modalBackdrop {
+          background: rgba(2, 6, 23, 0.8);
+          backdrop-filter: blur(12px) saturate(180%);
+        }
+
+        [data-theme="dark"] .modalCard {
+          background: rgba(30, 41, 59, 0.7);
+          backdrop-filter: blur(16px);
+          border: 1px solid rgba(255, 255, 255, 0.1);
+          box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+        }
+
+        [data-theme="dark"] .menuDropdownList,
+        [data-theme="dark"] .menuSubDropdownList {
+          background: rgba(30, 41, 59, 0.9);
+          backdrop-filter: blur(12px);
+          border-color: rgba(255, 255, 255, 0.1);
+          box-shadow: 0 10px 25px rgba(0, 0, 0, 0.4);
+        }
+
+        [data-theme="dark"] .menuDropdownItem:hover {
+          background: rgba(255, 255, 255, 0.05);
+          color: #38bdf8;
+          border-left-color: #38bdf8;
+        }
+
+        [data-theme="dark"] .studioFooter {
+          background: #0f172a;
+          border-top: 1px solid #1e293b;
+        }
+
+        [data-theme="dark"] .sidebarTab.active {
+          background: #38bdf8;
+          box-shadow: 0 4px 12px rgba(56, 189, 248, 0.25);
         }
         .closeBtn {
           background: transparent;
@@ -2114,7 +2317,7 @@ export default function LabelWorkbench() {
         .modalFooter {
           padding: 1.25rem 1.5rem;
           border-top: 1px solid var(--border);
-          background: #f8fafc;
+          background: var(--bg-tabs);
           display: flex;
           justify-content: flex-start;
           gap: 0.75rem;
@@ -2249,7 +2452,7 @@ export default function LabelWorkbench() {
           opacity: 1;
         }
         .leftSidebar, .rightSidebar {
-          background: #fff;
+          background: var(--bg-card);
           display: flex;
           flex-direction: column;
           overflow: hidden;
@@ -2366,7 +2569,7 @@ export default function LabelWorkbench() {
         .iconBtn {
           display: flex;
           width: 100%;
-          background: #fff;
+          background: var(--bg-card);
           border: 1px solid var(--border);
           color: var(--text);
           padding: 0.35rem 0.15rem;
@@ -2905,8 +3108,9 @@ export default function LabelWorkbench() {
           border-radius: 8px;
           padding: 0.3rem;
           box-shadow: 0 10px 24px rgba(0,0,0,0.12);
-          z-index: 200;
+          z-index: 2000;
           text-transform: none;
+          overflow: visible !important;
         }
         .menuDivider {
           height: 1px;
@@ -2968,7 +3172,7 @@ export default function LabelWorkbench() {
           flex-direction: column;
           gap: 0.15rem;
           box-shadow: 0 8px 20px rgba(0,0,0,0.1);
-          z-index: 210;
+          z-index: 2100;
         }
         
         .inspectorFields {
@@ -3610,25 +3814,6 @@ export default function LabelWorkbench() {
         </Portal>
       )}
 
-      {saveAsModalOpen && (
-        <Portal>
-        <div className="modalBackdrop" onClick={() => setSaveAsModalOpen(false)}>
-          <div className="modalCard" onClick={(e) => e.stopPropagation()}>
-            <h3>Guardar como</h3>
-            <div className="newDocGrid" style={{ marginTop: "1rem" }}>
-              <label className="menuField full">
-                Nuevo nombre
-                <input autoFocus value={saveAsName} onChange={(e) => setSaveAsName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && saveAsDoc()} />
-              </label>
-            </div>
-            <div className="modalActions">
-              <button type="button" className="secondary" onClick={() => setSaveAsModalOpen(false)}>Cancelar</button>
-              <button type="button" className="primary" onClick={saveAsDoc}>Guardar</button>
-            </div>
-          </div>
-        </div>
-        </Portal>
-      )}
 
       {showAboutModal && (
         <Portal>
@@ -3638,19 +3823,24 @@ export default function LabelWorkbench() {
               <div style={{ width: '84px', height: '84px', background: 'var(--primary,#16a34a)', borderRadius: '18px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: '2.5rem', marginBottom: '1rem', boxShadow: '0 8px 20px rgba(22,163,74,0.2)' }}>
                 🏷️
               </div>
-              <h2 style={{ margin: 0 }}>SAE Studio</h2>
-              <p style={{ margin: '0.2rem 0', opacity: 0.6, fontSize: '0.85rem' }}>Versión 1.2.0-stable</p>
+              <p style={{ margin: 0 }}>SAE Studio</p>
+              <p style={{ margin: '0.2rem 0', opacity: 0.6, fontSize: '0.85rem' }}>Versión 0.3.0</p>
             </div>
             
-            <div style={{ background: '#f8fafc', padding: '1.25rem', borderRadius: '12px', marginBottom: '1.5rem', border: '1px solid #e2e8f0' }}>
-              <p style={{ margin: '0 0 1rem 0', fontSize: '0.9rem', color: '#475569' }}>
+            <div style={{ background: 'var(--bg-tabs)', padding: '1.25rem', borderRadius: '12px', marginBottom: '1.5rem', border: '1px solid var(--border)' }}>
+              <p style={{ margin: '0 0 1rem 0', fontSize: '0.9rem', color: 'var(--text)' }}>
                 Suite profesional de diseño de etiquetas y tiquetes para motores de impresión SAE.
               </p>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', alignItems: 'center' }}>
-                <a href="https://github.com/EskenderDev/SAELABEL" target="_blank" style={{ color: 'var(--primary,#16a34a)', fontWeight: 600, textDecoration: 'none', fontSize: '0.85rem' }}>
-                  🌐 Ver en GitHub
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem', alignItems: 'center' }}>
+                <a href="https://studio.saesystem.solutions/" target="_blank" style={{ color: 'var(--accent)', fontWeight: 600, textDecoration: 'none', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                  Visitar sitio web
                 </a>
-                <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase' }}>Licencia MIT</span>
+                <a href="https://github.com/EskenderDev/SAE.STUDIO.APP" target="_blank" style={{ color: 'var(--text)', opacity: 0.7, fontWeight: 500, textDecoration: 'none', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/></svg>
+                  Repositorio GitHub
+                </a>
+                <div style={{ marginTop: '0.5rem', fontSize: '0.65rem', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Licencia MIT</div>
               </div>
             </div>
 

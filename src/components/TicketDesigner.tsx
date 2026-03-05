@@ -843,10 +843,32 @@ export default function TicketDesigner({ initialXml, onUpdate, apiBaseUrl }: Tic
     setShowPrintModal(true);
   }, [detectedVars, printDataList.length]);
 
-  // ─── Effects ────────────────────────────────────────────────────────────────
-  // Sync with XML
+  const lastSentXml = useRef<string>("");
+  const lastIncomingXml = useRef<string>(initialXml || "");
+
+  // Sync with prop change (loading from file/db)
   useEffect(() => {
-    onUpdate(blocksToXml(blocks, width, printers));
+    // Only reload if the prop actually differs from our last sent XML
+    // or from the last incoming XML we processed.
+    if (initialXml !== lastSentXml.current && initialXml !== lastIncomingXml.current) {
+      if (init) {
+        setBlocks(init.blocks);
+        setWidth(init.width);
+        setPrinters(init.printers);
+        setRedoStack([]);
+        setHistory([]);
+        lastIncomingXml.current = initialXml || "";
+      }
+    }
+  }, [initialXml, init]);
+
+  // Sync with XML (Notify parent)
+  useEffect(() => {
+    const currentXml = blocksToXml(blocks, width, printers);
+    if (currentXml !== lastSentXml.current && currentXml !== lastIncomingXml.current) {
+      lastSentXml.current = currentXml;
+      onUpdate(currentXml);
+    }
   }, [blocks, width, printers, onUpdate]);
 
   // Load logical printers
@@ -904,7 +926,7 @@ export default function TicketDesigner({ initialXml, onUpdate, apiBaseUrl }: Tic
       const payload = {
         xml,
         printerName: firstPrinter,
-        copies: 1,
+        copies: null, // Send null to use printer default
         data: finalData,
         dataList: finalDataList
       };
