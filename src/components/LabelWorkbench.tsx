@@ -1089,9 +1089,9 @@ export default function LabelWorkbench() {
               <button type="button" className="menuDropdownItem" onClick={() => { setShowPrintersManagerModal(true); closeAllMenus(); }}>
                 Impresoras Lógicas
               </button>
-              <div className="menuDropdownItem" style={{ cursor: 'default', padding: '0.6rem 1.25rem' }} onClick={(e) => e.stopPropagation()}>
+              <div className="menuDropdownItem" style={{ cursor: 'default', padding: '0.65rem 1.5rem', boxSizing: 'border-box' }} onClick={(e) => e.stopPropagation()}>
                 <label className="toggleLabel" style={{ padding: 0, width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', pointerEvents: 'none' }}>
-                  <span style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text)' }}>Auto-guardado</span>
+                  <span style={{ fontSize: '0.85rem', fontWeight: 500, color: 'var(--text)' }}>Auto-guardado</span>
                   <span
                     className="toggleTrack mini"
                     style={{ pointerEvents: 'auto', flexShrink: 0 }}
@@ -2819,7 +2819,7 @@ export default function LabelWorkbench() {
           padding: 0.6rem 1.2rem;
           font-size: 0.85rem;
           font-weight: 500;
-          color: var(--text);
+          color: var(--muted);
           cursor: pointer;
           border-bottom: 2px solid transparent;
           transition: all 0.2s ease;
