@@ -5,15 +5,15 @@ $ErrorActionPreference = "Stop"
 # Use paths relative to the current working directory (repo root) 
 # instead of PSScriptRoot which can be fragile in CI
 $RepoRoot = (Get-Item .).FullName
-$ProjectDir = Join-Path $RepoRoot "..\SAE_STUDIO\src\SAE.STUDIO.Api"
+$ProjectDir = Join-Path $RepoRoot "..\SAE.STUDIO\src\SAE.STUDIO.Api"
 
-# If the SAE_STUDIO folder happens to be alongside SAELABEL.APP in CI, check that.
+# If the SAE.STUDIO folder happens to be alongside SAELABEL.APP in CI, check that.
 # In GitHub Actions, usually the repo is checked out into $GITHUB_WORKSPACE.
 # We must ensure the .NET project actually exists in the CI environment!
 if (-Not (Test-Path $ProjectDir)) {
     Write-Warning "ProjectDir not found: $ProjectDir"
     # Looking inside the current repo as fallback if the folder structure is different
-    $ProjectDiralt = Join-Path $RepoRoot "SAE_STUDIO\src\SAE.STUDIO.Api"
+    $ProjectDiralt = Join-Path $RepoRoot "SAE.STUDIO\src\SAE.STUDIO.Api"
     if (Test-Path $ProjectDiralt) {
         $ProjectDir = $ProjectDiralt
     } else {

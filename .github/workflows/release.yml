@@ -25,8 +25,8 @@ jobs:
       - name: Checkout Backend
         uses: actions/checkout@v4
         with:
-          repository: EskenderDev/SAE_STUDIO
-          path: SAE_STUDIO
+          repository: EskenderDev/SAE.STUDIO
+          path: SAE.STUDIO
           token: ${{ secrets.GH_PAT_BACKEND }}
 
       - name: Setup .NET
