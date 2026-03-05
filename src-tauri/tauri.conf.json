@@ -34,6 +34,9 @@
     "externalBin": [
       "bin/SAE.STUDIO.Api"
     ],
+    "resources": {
+      "bin/Schemas/": "Schemas/"
+    },
     "windows": {
       "nsis": {
         "installerHooks": "./windows/hooks.nsh"
