@@ -481,6 +481,8 @@ export default function VisualCanvasEditor({
   const [activeGuidelineDrag, setActiveGuidelineDrag] = useState<{ id: string; startPosPt: number; hasExitedRuler?: boolean } | null>(null);
   const [rulerOffsets, setRulerOffsets] = useState({ x: 0, y: 0 });
   const [activeRightTab, setActiveRightTab] = useState<"layers" | "properties" | "preview" | "variables">("properties");
+  const [tabOrder, setTabOrder] = useState<("properties" | "layers" | "variables" | "preview")[]>(["properties", "layers", "variables", "preview"]);
+  const [draggedTab, setDraggedTab] = useState<string | null>(null);
   const [variables, setVariables] = useState<VariableDef[]>([]);
   const [newVarName, setNewVarName] = useState("");
   const [isPanning, setIsPanning] = useState(false);
@@ -1451,12 +1453,44 @@ export default function VisualCanvasEditor({
           </div>
         </main>
         <div className="sidebarResizer right" onMouseDown={(e) => { resizingSidebarRef.current = { side: "right", startX: e.clientX, startWidth: rightSidebarWidth, otherWidth: leftSidebarWidth, bodyWidth: studioBodyRef.current?.getBoundingClientRect().width ?? 0 }; }} />
-        <aside className="rightSidebar">
-          <div className="sidebarTabs">
-            <button type="button" className={`sidebarTab ${activeRightTab === "properties" ? "active" : ""}`} onClick={() => setActiveRightTab("properties")}>Propiedades</button>
-            <button type="button" className={`sidebarTab ${activeRightTab === "layers" ? "active" : ""}`} onClick={() => setActiveRightTab("layers")}>Capas</button>
-            <button type="button" className={`sidebarTab ${activeRightTab === "variables" ? "active" : ""}`} onClick={() => setActiveRightTab("variables")}>Datos</button>
-            <button type="button" className={`sidebarTab ${activeRightTab === "preview" ? "active" : ""}`} onClick={() => setActiveRightTab("preview")}>Vista Previa</button>
+        <aside className="rightSidebar" style={{ display: 'flex', flexDirection: 'row' }}>
+          <div className="sidebarTabs vertical">
+            {tabOrder.map(tab => {
+              const isActive = activeRightTab === tab;
+              const labels = { properties: "Propiedades", layers: "Capas", variables: "Datos", preview: "Vista Previa" };
+              const icons = {
+                properties: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>,
+                layers: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>,
+                variables: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.29 7 12 12 20.71 7"/><line x1="12" y1="22" x2="12" y2="12"/></svg>,
+                preview: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+              };
+              return (
+                <button
+                  key={tab}
+                  type="button"
+                  draggable
+                  onDragStart={() => setDraggedTab(tab)}
+                  onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    if (!draggedTab || draggedTab === tab) return;
+                    const next = [...tabOrder];
+                    const fromIdx = next.indexOf(draggedTab as any);
+                    const toIdx = next.indexOf(tab);
+                    next.splice(fromIdx, 1);
+                    next.splice(toIdx, 0, draggedTab as any);
+                    setTabOrder(next);
+                    setDraggedTab(null);
+                  }}
+                  className={`sidebarTab vertical ${isActive ? "active" : ""}`}
+                  onClick={() => setActiveRightTab(tab)}
+                  title={labels[tab]}
+                >
+                  <span className="tabIcon">{icons[tab]}</span>
+                  <span className="tabText">{labels[tab]}</span>
+                </button>
+              );
+            })}
           </div>
           <div className="sidebarScroll">
             {activeRightTab === "layers" && (

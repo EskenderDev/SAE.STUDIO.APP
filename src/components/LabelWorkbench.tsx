@@ -1026,7 +1026,7 @@ export default function LabelWorkbench() {
               </button>
               <div className="menuDivider" />
               <details className="menuSubDropdown" open={activeSubMenu === 'labels'}>
-                <summary className="menuDropdownItem" onClick={(e) => { e.preventDefault(); toggleSubMenu('labels'); }}>
+                <summary className="menuDropdownItem" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }} onClick={(e) => { e.preventDefault(); toggleSubMenu('labels'); }}>
                   <span>Etiquetas recientes</span>
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.5, flexShrink: 0 }}><polyline points="9 18 15 12 9 6"/></svg>
                 </summary>
@@ -1040,7 +1040,7 @@ export default function LabelWorkbench() {
                 </div>
               </details>
               <details className="menuSubDropdown" open={activeSubMenu === 'tickets'}>
-                <summary className="menuDropdownItem" onClick={(e) => { e.preventDefault(); toggleSubMenu('tickets'); }}>
+                <summary className="menuDropdownItem" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }} onClick={(e) => { e.preventDefault(); toggleSubMenu('tickets'); }}>
                   <span>Tiquetes recientes</span>
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.5, flexShrink: 0 }}><polyline points="9 18 15 12 9 6"/></svg>
                 </summary>
@@ -1089,9 +1089,8 @@ export default function LabelWorkbench() {
               <button type="button" className="menuDropdownItem" onClick={() => { setShowPrintersManagerModal(true); closeAllMenus(); }}>
                 Impresoras Lógicas
               </button>
-              <div className="menuDivider" />
-              <div className="menuDropdownItem" style={{ cursor: 'default' }} onClick={(e) => e.stopPropagation()}>
-                <label className="toggleLabel" style={{ padding: 0, width: '100%' }}>
+              <div className="menuDropdownItem" style={{ cursor: 'default', padding: '0.4rem 0.75rem' }} onClick={(e) => e.stopPropagation()}>
+                <label className="toggleLabel" style={{ padding: 0, width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <span style={{ fontSize: '0.85rem', fontWeight: 500 }}>Auto-guardado</span>
                   <span
                     className="toggleTrack"
@@ -2218,10 +2217,37 @@ export default function LabelWorkbench() {
           color: var(--text);
           background: rgba(255,255,255,0.5);
         }
-        .sidebarTab.active {
-          background: #fff;
-          color: var(--accent);
-          box-shadow: 0 2px 6px rgba(0,0,0,0.06);
+        .sidebarTabs.vertical {
+          flex-direction: column;
+          padding: 0.5rem 0.35rem;
+          width: 44px;
+          border-right: 1px solid var(--border);
+          background: #f8fafc;
+        }
+        .sidebarTab.vertical {
+          flex: 0 0 auto;
+          width: 32px;
+          height: 32px;
+          padding: 0;
+          margin-bottom: 0.5rem;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          position: relative;
+        }
+        .sidebarTab.vertical .tabText {
+          display: none; /* Hide text, use tooltip or just icons */
+        }
+        .sidebarTab.vertical:hover {
+          background: rgba(15, 118, 110, 0.1);
+        }
+        .sidebarTab.vertical.active {
+          background: var(--accent);
+          color: #fff;
+          box-shadow: 0 4px 12px rgba(15, 118, 110, 0.25);
+        }
+        .sidebarTab.vertical.active .tabIcon svg {
+          stroke: #fff;
         }
         
         .sidebarScroll {
