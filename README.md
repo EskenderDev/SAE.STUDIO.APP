@@ -1,5 +1,9 @@
 # SAE.STUDIO
 
+[![Release](https://github.com/EskenderDev/SAE.STUDIO.APP/actions/workflows/release.yml/badge.svg)](https://github.com/EskenderDev/SAE.STUDIO.APP/actions/workflows/release.yml)
+[![Deploy Landing Page](https://github.com/EskenderDev/SAE.STUDIO.APP/actions/workflows/pages.yml/badge.svg)](https://github.com/EskenderDev/SAE.STUDIO.APP/actions/workflows/pages.yml)
+[![Latest Release](https://img.shields.io/github/v/release/EskenderDev/SAE.STUDIO.APP?label=version&color=emerald)](https://github.com/EskenderDev/SAE.STUDIO.APP/releases/latest)
+
 **Infraestructura Profesional para el Diseño y Gestión de Etiquetado Térmico**
 
 SAE.STUDIO es un ecosistema integrado para la creación, gestión e impresión de etiquetas industriales. Combina la potencia de un motor de renderizado y comunicación en **C# .NET** con una interfaz de diseño moderna construida en **Tauri**, **React** y **Astro**.
