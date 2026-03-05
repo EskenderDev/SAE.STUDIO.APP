@@ -2159,18 +2159,37 @@ export default function LabelWorkbench() {
           overflow: hidden;
         }
         .sidebarResizer {
-          background: #e2e8f0;
+          background: #cbd5e1;
           cursor: col-resize;
           position: relative;
           z-index: 5;
+          transition: background 0.2s ease;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+        .sidebarResizer::after {
+          content: "";
+          width: 2px;
+          height: 24px;
+          background: rgba(0, 0, 0, 0.15);
+          border-radius: 2px;
+          box-shadow: 0 4px 0 rgba(0, 0, 0, 0.15), 0 -4px 0 rgba(0, 0, 0, 0.15);
+        }
+        .sidebarResizer:hover {
+          background: #3b82f6;
+        }
+        .sidebarResizer:hover::after {
+          background: rgba(255, 255, 255, 0.8);
+          box-shadow: 0 4px 0 rgba(255, 255, 255, 0.8), 0 -4px 0 rgba(255, 255, 255, 0.8);
         }
         .sidebarResizer::before {
           content: "";
           position: absolute;
           inset: 0;
-          background: linear-gradient(to right, transparent, rgba(15, 118, 110, 0.25), transparent);
+          background: linear-gradient(to right, transparent, rgba(59, 130, 246, 0.2), transparent);
           opacity: 0;
-          transition: opacity 0.12s ease;
+          transition: opacity 0.2s ease;
         }
         .sidebarResizer:hover::before {
           opacity: 1;
