@@ -6,11 +6,11 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>SAELABEL App</title>
+    <title>SAE.STUDIO.APP</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&display=swap" rel="stylesheet">
-    <style>
+    <style is:global>
       :root {
         --bg: transparent;
         --panel: rgba(255, 255, 255, 0.9);
@@ -18,8 +18,328 @@
         --muted: #475569;
         --accent: #0f766e;
         --border: #e2e8f0;
+        --bg-card: #ffffff;
+        --bg-subtle: #f8fafc;
+        --surface: #ffffff;
+        --surface-alt: #f1f5f9;
         --app-vh: 100vh;
+        --text-muted: #64748b;
+        --bg-subtle: rgba(15, 118, 110, 0.05);
+        --success-bg: #d1fae5;
+        --success-text: #065f46;
+        --success-border: #bbf7d0;
+        --info-bg: #dbeafe;
+        --info-text: #1e40af;
+        --info-border: #bfdbfe;
       }
+
+      @media (prefers-color-scheme: dark) {
+        :root:not([data-theme="light"]) {
+          --panel: rgba(15, 23, 42, 0.92);
+          --text: #e2e8f0;
+          --muted: #94a3b8;
+          --accent: #14b8a6;
+          --border: #334155;
+          --bg-card: #1e293b;
+          --bg-subtle: #0f172a;
+          --surface: #1e293b;
+          --surface-alt: #152032;
+        }
+        .modalCard {
+          background: #1e293b !important;
+          border-color: #334155 !important;
+          color: #e2e8f0 !important;
+        }
+        .modalCard h3, .modalCard h4 {
+          color: #e2e8f0 !important;
+        }
+        input, select, textarea {
+          background: #0f172a !important;
+          color: #e2e8f0 !important;
+          border-color: #334155 !important;
+        }
+        input::placeholder, textarea::placeholder {
+          color: #64748b !important;
+        }
+        button.secondary {
+          background: #1e293b !important;
+          color: #e2e8f0 !important;
+          border-color: #334155 !important;
+        }
+        button.secondary:hover {
+          background: #334155 !important;
+        }
+        button.danger {
+          background: #450a0a !important;
+          color: #fca5a5 !important;
+          border-color: #7f1d1d !important;
+        }
+        .modalBackdrop {
+          background: rgba(5, 10, 20, 0.65) !important;
+        }
+        .modalActions {
+          border-color: #334155 !important;
+        }
+        .toggleTrack {
+          background-color: #334155 !important;
+        }
+        .customCheckbox input[type="checkbox"] {
+          background: #1e293b !important;
+          border-color: #475569 !important;
+        }
+        .fileMenuDropdown, .menuDropdownList, .menuSubDropdownList {
+          background: #1e293b !important;
+          border-color: #334155 !important;
+        }
+        .menuDropdownItem:hover, .fileMenuDropdown button:hover {
+          background: #334155 !important;
+          color: var(--accent) !important;
+        }
+        .menuDropdownItem.active {
+          background: #134e4a !important;
+        }
+        pre {
+          background: #0f172a !important;
+          border-color: #334155 !important;
+          color: #e2e8f0 !important;
+        }
+      }
+
+      /* ── Manual dark mode ── */
+      [data-theme="dark"] {
+        --panel: rgba(13, 20, 35, 0.97) !important;
+        --text: #e2e8f0 !important;
+        --muted: #94a3b8 !important;
+        --accent: #2dd4bf !important;
+        --border: #2d3f55 !important;
+        --bg-card: #162032 !important;
+        --bg-subtle: #0f172a !important;
+        --surface: #1e293b !important;
+        --surface-alt: #0d1525 !important;
+        --text-muted: #94a3b8 !important;
+        --success-bg: #064e3b !important;
+        --success-text: #34d399 !important;
+        --success-border: #065f46 !important;
+        --info-bg: #1e3a8a !important;
+        --info-text: #93c5fd !important;
+        --info-border: #1e40af !important;
+        color-scheme: dark;
+      }
+
+      /* All general white/light surfaces */
+      [data-theme="dark"] * {
+        scrollbar-color: #334155 #0d1525;
+      }
+      [data-theme="dark"] body,
+      [data-theme="dark"] main,
+      [data-theme="dark"] .panel { background: #0d1525 !important; color: #e2e8f0 !important; }
+
+      /* Nav / topbar */
+      [data-theme="dark"] nav,
+      [data-theme="dark"] [style*="background: #fff"],
+      [data-theme="dark"] [style*="background: #ffffff"],
+      [data-theme="dark"] [style*="background: white"] { background: #162032 !important; }
+      [data-theme="dark"] [style*="background: #f8fafc"],
+      [data-theme="dark"] [style*="background: #f1f5f9"] { background: #0d1525 !important; }
+      [data-theme="dark"] [style*="background: rgb(248"] { background: #0d1525 !important; }
+
+      /* Sidebar panels */
+      [data-theme="dark"] .leftSidebar,
+      [data-theme="dark"] .rightSidebar,
+      [data-theme="dark"] aside { background: #162032 !important; border-color: #2d3f55 !important; }
+
+      /* Toolbar strip */
+      [data-theme="dark"] .studioTopbar { background: #162032 !important; border-color: #2d3f55 !important; }
+      [data-theme="dark"] .sidebarTabs { background: #0d1525 !important; }
+      [data-theme="dark"] .sidebarTab { color: #94a3b8 !important; }
+      [data-theme="dark"] .sidebarTab.active { background: #162032 !important; color: #e2e8f0 !important; }
+
+      /* Tab bar (Diseñador de Etiquetas / Tiquetes) */
+      [data-theme="dark"] .designerTab.active { 
+        background: #ffffff !important; 
+        color: #0f172a !important; 
+        border-bottom-color: #ffffff !important;
+      }
+      [data-theme="dark"] .designerTab.active svg { color: #0f172a !important; }
+
+      /* Canvas/viewport */
+      [data-theme="dark"] .previewViewport { background: #0f172a !important; }
+      [data-theme="dark"] .previewLabel { background: #ffffff !important; border: 2px solid #ffffff !important; }
+      [data-theme="dark"] .previewObject { color: #000000 !important; }
+
+      /* Tab bar (Diseñador de Etiquetas / Tiquetes) */
+      [data-theme="dark"] [style*="background: #f8fafc"][style*="height: 36px"],
+      [data-theme="dark"] [style*="background: #f8fafc"][style*="height:36px"] { background: #0d1525 !important; }
+
+      /* Inputs, selects, textareas */
+      [data-theme="dark"] input:not([type="checkbox"]):not([type="radio"]),
+      [data-theme="dark"] select,
+      [data-theme="dark"] textarea {
+        background: #0d1525 !important;
+        color: #e2e8f0 !important;
+        border-color: #2d3f55 !important;
+      }
+      [data-theme="dark"] input::placeholder,
+      [data-theme="dark"] textarea::placeholder { color: #475569 !important; }
+
+      /* Buttons */
+      [data-theme="dark"] button.secondary {
+        background: #162032 !important;
+        color: #e2e8f0 !important;
+        border-color: #2d3f55 !important;
+      }
+      [data-theme="dark"] button.secondary:hover { background: #2d3f55 !important; }
+      [data-theme="dark"] button.danger {
+        background: #450a0a !important; color: #fca5a5 !important; border-color: #7f1d1d !important;
+      }
+      [data-theme="dark"] .winBtn { color: #94a3b8 !important; }
+      [data-theme="dark"] .winBtn:hover { background: rgba(255,255,255,0.08) !important; }
+
+      /* Modals */
+      [data-theme="dark"] .modalCard {
+        background: #162032 !important;
+        border-color: #2d3f55 !important;
+        color: #e2e8f0 !important;
+      }
+      [data-theme="dark"] .modalCard h3,
+      [data-theme="dark"] .modalCard h4 { color: #e2e8f0 !important; }
+      [data-theme="dark"] .modalBackdrop { background: rgba(5, 10, 20, 0.75) !important; }
+      [data-theme="dark"] .modalActions { border-color: #2d3f55 !important; }
+
+      /* Dropdowns / menus */
+      [data-theme="dark"] .menuDropdownList,
+      [data-theme="dark"] .menuSubDropdownList,
+      [data-theme="dark"] .fileMenuDropdown {
+        background: #162032 !important; border-color: #2d3f55 !important;
+      }
+      [data-theme="dark"] .menuDropdownItem { color: #e2e8f0 !important; }
+      [data-theme="dark"] .menuDropdownItem:hover { background: #2d3f55 !important; color: var(--accent) !important; }
+      [data-theme="dark"] .menuDropdownItem.active { background: #134e4a !important; }
+      [data-theme="dark"] .menuDivider { background: #2d3f55 !important; }
+      [data-theme="dark"] .menuItem { color: #e2e8f0 !important; }
+      [data-theme="dark"] .menuItem:hover { color: var(--accent) !important; }
+      [data-theme="dark"] .menuItem.active { color: var(--accent) !important; }
+
+      /* Toggle */
+      [data-theme="dark"] .toggleTrack:not([data-checked="true"]) { background-color: #334155 !important; }
+
+      /* Custom checkbox */
+      [data-theme="dark"] .customCheckbox input[type="checkbox"] {
+        background: #0d1525 !important; border-color: #475569 !important;
+      }
+
+      /* Code / pre */
+      [data-theme="dark"] pre {
+        background: #0d1525 !important; border-color: #2d3f55 !important; color: #e2e8f0 !important;
+      }
+
+      /* dividers & borders */
+      [data-theme="dark"] [style*="border-bottom: 1px solid #e2e8f0"],
+      [data-theme="dark"] [style*="border-bottom:1px solid #e2e8f0"],
+      [data-theme="dark"] [style*="border-top: 1px solid #e2e8f0"] { border-color: #2d3f55 !important; }
+      [data-theme="dark"] [style*="background: #e2e8f0"][style*="width:1px"],
+      [data-theme="dark"] [style*="background: #e2e8f0"][style*="width: 1px"] { background: #2d3f55 !important; }
+
+      /* History / list items */
+      [data-theme="dark"] .history { background: #162032 !important; border-color: #2d3f55 !important; }
+      [data-theme="dark"] .history li { border-color: #2d3f55 !important; }
+
+      /* ── VisualCanvasEditor dark overrides ── */
+      [data-theme="dark"] .canvasViewport { 
+        background: #0f172a !important; 
+        background-image: radial-gradient(#475569 1px, transparent 1px) !important;
+        background-size: 20px 20px !important;
+      }
+      [data-theme="dark"] .canvasBoard { background: #ffffff !important; box-shadow: 0 0 0 1px rgba(255,255,255,0.1); }
+      [data-theme="dark"] .canvasObject { border-color: #14b8a6 !important; background: rgba(20,184,166,0.06) !important; color: #000000 !important; }
+      [data-theme="dark"] .canvasObject.selected { outline-color: #14b8a6 !important; }
+      [data-theme="dark"] .rulerCorner { background: #0d1525 !important; border-color: #2d3f55 !important; }
+
+      /* Sidebar left (VisualCanvasEditor) */
+      [data-theme="dark"] .sidebarHeader { background: #0d1525 !important; border-color: #2d3f55 !important; }
+      [data-theme="dark"] .sidebarHeader h3 { color: #e2e8f0 !important; }
+      [data-theme="dark"] .sidebarSection h4 { color: #94a3b8 !important; }
+      [data-theme="dark"] .editHint { background: #0d1525 !important; border-color: #2d3f55 !important; color: #94a3b8 !important; }
+
+      /* iconBtn (toolbox cards) */
+      [data-theme="dark"] .iconBtn { background: #162032 !important; border-color: #2d3f55 !important; color: #e2e8f0 !important; }
+      [data-theme="dark"] .iconBtn:hover { background: #1e2d42 !important; border-color: var(--accent) !important; color: var(--accent) !important; }
+      [data-theme="dark"] .iconBtn small { color: #94a3b8 !important; }
+
+      /* Variables panel cards */
+      [data-theme="dark"] .variableCard { 
+        background: #1e293b !important; 
+        border-color: #334155 !important; 
+        box-shadow: 0 4px 6px -1px rgba(0,0,0,0.3) !important;
+      }
+      [data-theme="dark"] .variablesPanel,
+      [data-theme="dark"] .variablesPanel > div { color: #e2e8f0 !important; }
+      [data-theme="dark"] .variablesInfoBox {
+        background: #1e2d42 !important;
+        border-color: #3b82f6 !important;
+        color: #93c5fd !important;
+      }
+      [data-theme="dark"] .variableCard select {
+        background: #0f172a !important;
+        color: #e2e8f0 !important;
+        border-color: #334155 !important;
+      }
+
+      /* Tab bar top (Diseñador de Etiquetas / Tiquetes) */
+      [data-theme="dark"] .tabStrip,
+      [data-theme="dark"] .tabBar { background: #0d1525 !important; border-color: #2d3f55 !important; }
+
+      /* Right sidebar tabs */
+      [data-theme="dark"] .sidebarTabs { background: #0d1525 !important; border-color: #2d3f55 !important; }
+      [data-theme="dark"] .sidebarTab { color: #94a3b8 !important; background: transparent !important; border-color: transparent !important; }
+      [data-theme="dark"] .sidebarTab.active { background: #162032 !important; color: #e2e8f0 !important; border-color: #2d3f55 !important; }
+
+      /* studioTopbar (in VisualCanvasEditor) */
+      [data-theme="dark"] .studioTopbar { background: #0d1525 !important; border-color: #2d3f55 !important; }
+      [data-theme="dark"] .studioLogoText {
+        background: linear-gradient(to right, #ffffff, #94a3b8) !important;
+        -webkit-background-clip: text !important;
+        -webkit-text-fill-color: transparent !important;
+      }
+      [data-theme="dark"] .sidebarResizer { background: transparent !important; border-color: #2d3f55 !important; }
+      [data-theme="dark"] .sidebarResizer:hover { background: var(--accent) !important; opacity: 0.2; }
+      [data-theme="dark"] .zoomLabel,
+      [data-theme="dark"] .sizeLabel,
+      [data-theme="dark"] .sizeAxis { color: #94a3b8 !important; }
+      [data-theme="dark"] .zoomBadge { background: #1e293b !important; color: #e2e8f0 !important; border-color: #2d3f55 !important; }
+      [data-theme="dark"] .controlIcon { color: #64748b !important; }
+      [data-theme="dark"] .unitInput input,
+      [data-theme="dark"] .unitSelect { background: #0d1525 !important; color: #e2e8f0 !important; border-color: #2d3f55 !important; }
+
+      /* Ticket Designer dark mode overrides */
+      [data-theme="dark"] .ticketDesignerSection { background: #0d1525 !important; }
+      [data-theme="dark"] .ticketToolbar { background: #162032 !important; border-bottom-color: #2d3f55 !important; color: #e2e8f0 !important; }
+      [data-theme="dark"] .ticketPalette { background: #162032 !important; border-right-color: #2d3f55 !important; }
+      [data-theme="dark"] .ticketStructure { background: #0d1525 !important; border-right-color: #2d3f55 !important; }
+      [data-theme="dark"] .ticketCanvasArea { background: #0d1525 !important; }
+      [data-theme="dark"] .ticketProperties { background: #162032 !important; border-left-color: #2d3f55 !important; }
+      
+      [data-theme="dark"] .ticketBlockRow { background: #1e293b !important; border-color: #334155 !important; color: #e2e8f0 !important; }
+      [data-theme="dark"] .ticketBlockRow:hover { background: #2d3f55 !important; }
+      [data-theme="dark"] .ticketBlockRow.selected { background: #134e4a !important; border-color: #14b8a6 !important; color: #fff !important; }
+      
+      [data-theme="dark"] .ticketPaletteBtn { background: #1e293b !important; border-color: #334155 !important; color: #e2e8f0 !important; }
+      [data-theme="dark"] .ticketPaletteBtn:hover { background: #2d3f55 !important; }
+      
+      [data-theme="dark"] .ticketColRow { background: #1e293b !important; border-color: #334155 !important; color: #e2e8f0 !important; }
+      
+      [data-theme="dark"] .ticketPreviewArea { background: #ffffff !important; color: #000000 !important; }
+      [data-theme="dark"] .ticketPrinterBtn { background: #1e293b !important; border-color: #334155 !important; color: #94a3b8 !important; }
+      [data-theme="dark"] .ticketPrinterBtn:hover { background: #2d3f55 !important; border-color: var(--accent) !important; }
+
+      /* Logical Printers Modal dark mode */
+      [data-theme="dark"] .lpFormCard { background: #162032 !important; border-color: #2d3f55 !important; }
+      [data-theme="dark"] .lpPrinterItem { background: #1e293b !important; border-color: #334155 !important; color: #e2e8f0 !important; }
+      [data-theme="dark"] .lpPrinterItem:hover { background: #232f45 !important; }
+      [data-theme="dark"] .lpInfoBox.success { background: var(--success-bg) !important; color: var(--success-text) !important; border-color: var(--success-border) !important; }
+      [data-theme="dark"] .lpInfoBox.info { background: var(--info-bg) !important; color: var(--info-text) !important; border-color: var(--info-border) !important; }
+      [data-theme="dark"] .customCheckbox { color: var(--text-muted) !important; }
+      [data-theme="dark"] .closeBtn:hover { background: #450a0a !important; color: #fca5a5 !important; }
 
       html, body {
         margin: 0;
@@ -49,12 +369,202 @@
       /* Base panel for transparency */
       .panel {
         background: var(--panel);
-        backdrop-filter: blur(12px);
         width: 100%;
         height: 100%;
         min-height: 0;
         box-sizing: border-box;
         border-radius: 12px;
+      }
+
+      /* Premium Modal Styles */
+      .modalBackdrop {
+        position: fixed;
+        inset: 0;
+        background: rgba(15, 23, 42, 0.45);
+        backdrop-filter: blur(4px);
+        z-index: 10000;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 1.5rem;
+      }
+      .modalCard {
+        width: min(560px, 95vw);
+        background: #fff;
+        border: 1px solid rgba(0,0,0,0.05);
+        border-radius: 16px;
+        box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25);
+        padding: 1.5rem;
+        animation: modalAppear 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+      }
+      @keyframes modalAppear {
+        from { opacity: 0; transform: translateY(10px) scale(0.98); }
+        to { opacity: 1; transform: translateY(0) scale(1); }
+      }
+      .modalCard h3 {
+        margin: 0 0 1rem;
+        font-size: 1.1rem;
+        font-weight: 700;
+        color: var(--text);
+        display: flex;
+        align-items: center;
+        gap: 0.6rem;
+      }
+      .modalActions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 0.75rem;
+        margin-top: 1.5rem;
+        padding-top: 1rem;
+        border-top: 1px solid var(--border);
+      }
+
+      /* Premium Toggle Switch */
+      .toggleLabel {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0.5rem 0;
+        cursor: pointer;
+        user-select: none;
+        gap: 0.75rem;
+      }
+      .toggleTrack {
+        width: 40px;
+        height: 22px;
+        background-color: #cbd5e1;
+        border-radius: 22px;
+        position: relative;
+        transition: background-color 0.2s;
+        display: inline-block;
+        flex-shrink: 0;
+        cursor: pointer;
+      }
+      .toggleThumb {
+        width: 16px;
+        height: 16px;
+        background-color: white;
+        border-radius: 50%;
+        position: absolute;
+        top: 3px;
+        left: 3px;
+        transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+      }
+      .toggleInput {
+        position: absolute;
+        opacity: 0;
+        width: 0;
+        height: 0;
+        pointer-events: none;
+      }
+      /* Works via JS: add data-checked attr to .toggleTrack when input is checked */
+      .toggleTrack[data-checked="true"] {
+        background-color: var(--accent);
+      }
+      .toggleTrack[data-checked="true"] .toggleThumb {
+        transform: translateX(18px);
+      }
+      /* Fallback: use :has() for browsers that support it */
+      .toggleLabel:has(input:checked) .toggleTrack {
+        background-color: var(--accent);
+      }
+      .toggleLabel:has(input:checked) .toggleThumb {
+        transform: translateX(18px);
+      }
+
+      /* Custom checkbox */
+      .customCheckbox {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        cursor: pointer;
+        user-select: none;
+        font-size: 0.85rem;
+        font-weight: 500;
+        color: var(--text);
+      }
+      .customCheckbox input[type="checkbox"] {
+        appearance: none;
+        -webkit-appearance: none;
+        width: 16px;
+        height: 16px;
+        min-width: 16px;
+        border: 2px solid #cbd5e1;
+        border-radius: 4px;
+        background: #fff;
+        cursor: pointer;
+        transition: all 0.15s;
+        position: relative;
+        margin: 0;
+        padding: 0;
+        display: inline-block;
+        vertical-align: middle;
+        flex-shrink: 0;
+      }
+      .customCheckbox input[type="checkbox"]:checked {
+        background: var(--accent);
+        border-color: var(--accent);
+      }
+      .customCheckbox input[type="checkbox"]:checked::after {
+        content: "";
+        position: absolute;
+        left: 2px;
+        top: 0px;
+        width: 5px;
+        height: 9px;
+        border: 2px solid white;
+        border-top: none;
+        border-left: none;
+        transform: rotate(45deg);
+      }
+      .customCheckbox input[type="checkbox"]:focus {
+        outline: none;
+        box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.15);
+      }
+
+      /* Forms & Buttons */
+      button.primary {
+        background: var(--accent);
+        color: white;
+        border: none;
+        padding: 0.6rem 1.25rem;
+        border-radius: 8px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.2s;
+      }
+      button.primary:hover {
+        filter: brightness(1.1);
+        box-shadow: 0 4px 12px rgba(15, 118, 110, 0.2);
+      }
+      button.secondary {
+        background: #f1f5f9;
+        color: #475569;
+        border: 1px solid #e2e8f0;
+        padding: 0.6rem 1.25rem;
+        border-radius: 8px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.2s;
+      }
+      button.secondary:hover {
+        background: #e2e8f0;
+        color: #1e293b;
+      }
+      button.danger {
+        background: #fee2e2;
+        color: #991b1b;
+        border: 1px solid #fecaca;
+        padding: 0.6rem 1.25rem;
+        border-radius: 8px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.2s;
+      }
+      button.danger:hover {
+        background: #fecaca;
+        color: #7f1d1d;
       }
     </style>
   </head>

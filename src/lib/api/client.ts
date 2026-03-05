@@ -24,7 +24,7 @@ export type LogicalPrinterDto = {
   physicalPrinter: string;
   isActive: boolean;
   copies: number;
-  paperWidth: number;
+  paperWidth?: number | null;
   mediaType: string;
 };
 
@@ -35,7 +35,7 @@ export type UpsertLogicalPrinterRequest = {
   physicalPrinter: string;
   isActive: boolean;
   copies: number;
-  paperWidth: number;
+  paperWidth?: number | null;
   mediaType: string;
 };
 

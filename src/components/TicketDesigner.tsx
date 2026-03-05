@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from "react"
 import QRCode from "qrcode";
 import * as XLSX from 'xlsx';
 import { labelsApi, type LogicalPrinterDto } from "@/lib/api/client";
+import { Portal } from "@/components/Portal";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type Align    = "left" | "center" | "right";
@@ -151,6 +152,7 @@ function QrImage({ content, size }: { content: string; size: number }) {
 // ─── Rich Preview ─────────────────────────────────────────────────────────────
 const MONO: React.CSSProperties = { fontFamily:"'Courier New',Courier,monospace", fontSize:"0.78rem", lineHeight:1.55 };
 const PREVIEW_ROW: React.CSSProperties = { ...MONO, display:"block", whiteSpace:"pre" };
+const INP_STYLE: React.CSSProperties  = { display:"block", width:"100%", marginTop:"0.2rem", padding:"0.6rem 0.75rem", border:"1px solid var(--border,#cbd5e1)", borderRadius:8, fontSize:"0.85rem", background:"var(--surface-alt, #f8fafc)", color: "var(--text)", boxSizing:"border-box", transition: "all 0.2s" };
 
 // ─── Special Variables ────────────────────────────────────────────────────────
 const SPECIAL_VARS = [
@@ -347,7 +349,7 @@ function BlockPreviewItem({ block, cols }: { block: Block; cols: number }) {
 
 function TicketPreview({ blocks, cols }: { blocks: Block[]; cols: number }) {
   return (
-    <div style={{ fontFamily:"'Courier New',Courier,monospace", fontSize:"0.78rem", background:"#fff", color:"#111",
+    <div className="ticketPreviewArea" style={{ fontFamily:"'Courier New',Courier,monospace", fontSize:"0.78rem", background:"#fff", color:"#111",
       padding:"1rem 1.1rem", borderRadius:3, whiteSpace:"pre", lineHeight:1.55, minWidth:`${cols}ch`,
       display:"inline-block", boxShadow:"0 2px 12px rgba(0,0,0,0.14),0 1px 3px rgba(0,0,0,0.07)" }}>
       {blocks.length === 0
@@ -381,8 +383,8 @@ const ICON_MAP:  Record<string,string> = { text:"T", separator:"—", total:"Σ"
 const LABEL_MAP: Record<string,string> = { text:"Texto", separator:"Separador", total:"Total", qr:"QR", each:"Lista", if:"Si", ifelse:"Si/No", feed:"Avance", cut:"Corte", beep:"Beep", "open-drawer":"Caja" };
 
 // ─── Property fields ───────────────────────────────────────
-const INP: React.CSSProperties  = { display:"block", width:"100%", marginTop:"0.2rem", padding:"0.3rem 0.45rem", border:"1px solid var(--border,#cbd5e1)", borderRadius:4, fontSize:"0.78rem", background:"#fff", boxSizing:"border-box" };
-const MINI: React.CSSProperties = { padding:"2px 8px", fontSize:"0.74rem", border:"1px solid var(--border,#cbd5e1)", borderRadius:4, cursor:"pointer", background:"#f8fafc" };
+const INP: React.CSSProperties  = { display:"block", width:"100%", marginTop:"0.2rem", padding:"0.6rem 0.75rem", border:"1px solid var(--border,#cbd5e1)", borderRadius:8, fontSize:"0.85rem", background:"#f8fafc", boxSizing:"border-box", transition: "all 0.2s" };
+const MINI: React.CSSProperties = { padding:"4px 10px", fontSize:"0.74rem", border:"1px solid var(--border,#cbd5e1)", borderRadius:6, cursor:"pointer", background:"var(--surface-alt, #f8fafc)", color: "var(--text)", fontWeight:600 };
 
 function ColRow({ col, idx, onChange, onDelete, onDragStart, onDragOver, onDrop }:
   { 
@@ -395,6 +397,7 @@ function ColRow({ col, idx, onChange, onDelete, onDragStart, onDragOver, onDrop 
   const u = (p: Partial<EachColumn>) => onChange({ ...col, ...p });
   return (
     <div 
+      className="ticketColRow"
       draggable
       onDragStart={onDragStart}
       onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); onDragOver(e); }}
@@ -436,9 +439,16 @@ function ColRow({ col, idx, onChange, onDelete, onDragStart, onDragOver, onDrop 
             {["normal","medium","large"].map(o=><option key={o}>{o}</option>)}
           </select>
         </div>
-        <div style={{ display:"flex", alignItems:"center" }}>
-          <label style={{ fontSize:"0.7rem", cursor:"pointer", display:"flex", alignItems:"center", gap:4, marginTop:12 }}>
-            <input type="checkbox" checked={col.bold||false} onChange={e=>u({bold:e.target.checked})}/> Negrita
+        <div style={{ gridColumn: "1 / -1" }}>
+          <label className="toggleLabel" style={{ padding: "0.25rem 0" }}>
+            <span style={{ fontSize: '0.75rem', fontWeight: 600 }}>Negrita</span>
+            <div style={{ position: 'relative' }}>
+              <input type="checkbox" className="toggleInput" id={`col-bold-${idx}`}
+                checked={col.bold||false} onChange={e=>u({bold:e.target.checked})}/>
+              <label htmlFor={`col-bold-${idx}`} className="toggleTrack">
+                <div className="toggleThumb"></div>
+              </label>
+            </div>
           </label>
         </div>
       </label>
@@ -450,53 +460,39 @@ function ColRow({ col, idx, onChange, onDelete, onDragStart, onDragOver, onDrop 
   );
 }
 
-function PrinterSelector({ value, onChange, apiBaseUrl }: { value: string; onChange: (v: string) => void, apiBaseUrl?: string }) {
-  const [isOpen, setIsOpen] = useState(false);
-  const [options, setOptions] = useState<LogicalPrinterDto[]>([]);
-  const [search, setSearch] = useState("");
+function PrinterSelectorBtn({ value, onOpen }: { value: string; onOpen: () => void }) {
   const selected = value.split(",").map(v => v.trim()).filter(Boolean);
-
-  useEffect(() => {
-    if (isOpen) {
-      labelsApi.getLogicalPrinters().then(setOptions).catch(console.error);
-    }
-  }, [isOpen]);
-
-  const toggle = (name: string) => {
-    const next = selected.includes(name) ? selected.filter(n => n !== name) : [...selected, name];
-    onChange(next.join(", "));
-  };
-
-  const filtered = options.filter(o => o.name.toLowerCase().includes(search.toLowerCase()));
-
   return (
-    <div style={{ position: "relative", flex: 1 }}>
-      <div onClick={() => setIsOpen(!isOpen)} style={{ ...INP, cursor: "pointer", minHeight: "32px", display: "flex", flexWrap: "wrap", gap: "4px", alignItems: "center" }}>
-        {selected.length === 0 ? <span style={{ color: "#94a3b8" }}>Seleccionar impresoras...</span> : 
-          selected.map(s => <span key={s} style={{ background: "#e2e8f0", padding: "2px 6px", borderRadius: 4, fontSize: "0.7rem", fontWeight: 600 }}>{s}</span>)
-        }
-      </div>
-      {isOpen && (
-        <>
-          <div onClick={() => setIsOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 10 }} />
-          <div style={{ position: "absolute", top: "100%", left: 0, right: 0, background: "#fff", border: "1px solid #cbd5e1", borderRadius: 6, marginTop: 4, zIndex: 11, boxShadow: "0 10px 15px -3px rgba(0,0,0,0.1)", maxHeight: 300, display: "flex", flexDirection: "column" }}>
-            <input autoFocus placeholder="Buscar..." value={search} onChange={e => setSearch(e.target.value)} style={{ border: "none", borderBottom: "1px solid #e2e8f0", padding: "8px 12px", width: "100%", outline: "none", fontSize: "0.8rem" }} />
-            <div style={{ overflow: "auto", flex: 1 }}>
-              {filtered.map(o => (
-                <div key={o.id} onClick={() => toggle(o.name)} style={{ padding: "8px 12px", cursor: "pointer", display: "flex", alignItems: "center", gap: "8px", background: selected.includes(o.name) ? "#f1f5f9" : "#fff" }} 
-                  onMouseOver={e => e.currentTarget.style.background = "#f1f5f9"} onMouseOut={e => e.currentTarget.style.background = selected.includes(o.name) ? "#f1f5f9" : "#fff"}>
-                  <input type="checkbox" checked={selected.includes(o.name)} readOnly />
-                  <span style={{ fontSize: "0.8rem" }}>{o.name}</span>
-                </div>
-              ))}
-              {filtered.length === 0 && <div style={{ padding: "12px", color: "#94a3b8", fontSize: "0.75rem", textAlign: "center" }}>No hay impresoras...</div>}
-            </div>
-          </div>
-        </>
-      )}
-    </div>
+    <button
+      type="button"
+      onClick={onOpen}
+      style={{
+        display: "inline-flex", alignItems: "center", flexWrap: "wrap", gap: "5px",
+        padding: "4px 10px 4px 8px", borderRadius: 8,
+        border: "1px solid var(--border,#cbd5e1)",
+        background: "#f8fafc", cursor: "pointer",
+        fontSize: "0.8rem", fontWeight: 600, color: "#475569",
+        maxWidth: 300, minWidth: 120,
+        transition: "all 0.15s",
+        boxShadow: "none"
+      }}
+      className="ticketPrinterBtn"
+      onMouseOver={e => { e.currentTarget.style.borderColor = "var(--accent,#0f766e)"; e.currentTarget.style.background = "var(--surface-alt, #f0fdf4)"; }}
+      onMouseOut={e => { e.currentTarget.style.borderColor = "var(--border,#cbd5e1)"; e.currentTarget.style.background = "var(--surface-alt, #f8fafc)"; }}
+    >
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, opacity: 0.6 }}>
+        <polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/>
+      </svg>
+      {selected.length === 0
+        ? <span style={{ color: "#94a3b8", fontWeight: 400 }}>Seleccionar...</span>
+        : selected.map(s => (
+            <span key={s} style={{ background: "var(--accent,#0f766e)", color: "#fff", padding: "1px 7px", borderRadius: 10, fontSize: "0.68rem", fontWeight: 700 }}>{s}</span>
+          ))
+      }
+    </button>
   );
 }
+
 
 function PropsPanel({ block, onChange }: { block: Block; onChange: (b: Block) => void }) {
   const L: React.CSSProperties = { display:"block", marginBottom:"0.6rem", fontSize:"0.82rem", fontWeight:600, color:"var(--text,#0f172a)" };
@@ -512,7 +508,18 @@ function PropsPanel({ block, onChange }: { block: Block; onChange: (b: Block) =>
     </div>
   );
   const sel = (val: string,  s: SS, opts: string[]) => <select style={{ ...S, marginTop:"0.25rem" }} value={val} onChange={e=>onChange(s(e.target.value))}>{opts.map(o=><option key={o}>{o}</option>)}</select>;
-  const chk = (val: boolean, s: SB, lbl: string)   => <label style={{ display:"flex", gap:"0.6rem", alignItems:"center", marginTop:"0.8rem", cursor:"pointer", fontSize:"0.82rem", fontWeight:500 }}><input type="checkbox" style={{ width:16, height:16 }} checked={val} onChange={e=>onChange(s(e.target.checked))}/>{lbl}</label>;
+  const chk = (val: boolean, s: SB, lbl: string)   => (
+    <label className="toggleLabel" style={{ marginTop: '0.4rem' }}>
+      <span style={{ fontSize: '0.85rem', fontWeight: 600 }}>{lbl}</span>
+      <div style={{ position: 'relative' }}>
+        <input type="checkbox" className="toggleInput" id={`prop-chk-${lbl}`}
+          checked={val} onChange={e=>onChange(s(e.target.checked))}/>
+        <label htmlFor={`prop-chk-${lbl}`} className="toggleTrack">
+          <div className="toggleThumb"></div>
+        </label>
+      </div>
+    </label>
+  );
   const f   = (label: string, node: React.ReactNode) => <label style={L}>{label}{node}</label>;
 
   const ShowIfField = () => (
@@ -650,6 +657,7 @@ function BlockRow({
         onDrop(e);
       }}
       onClick={onSelect} 
+      className={`ticketBlockRow ${selected ? 'selected' : ''}`}
       style={{
         display:"flex", alignItems:"center", gap:"0.5rem", padding:"0.5rem 0.6rem",
         background: selected ? "var(--primary,#16a34a)" : "#fff",
@@ -685,6 +693,7 @@ function PaletteBtn({ item, onClick }: { item: typeof PALETTE[0]; onClick: ()=>v
   return (
     <button onClick={onClick}
       onMouseEnter={()=>setHover(true)} onMouseLeave={()=>setHover(false)}
+      className="ticketPaletteBtn"
       style={{ display:"flex", alignItems:"center", gap:"0.5rem", padding:"0.38rem 0.5rem",
         background: hover ? `${c}12` : "#fff",
         border: hover ? `1px solid ${c}66` : "1px solid var(--border,#e2e8f0)",
@@ -700,16 +709,39 @@ function PaletteBtn({ item, onClick }: { item: typeof PALETTE[0]; onClick: ()=>v
 export default function TicketDesigner({ initialXml, onUpdate, apiBaseUrl }: TicketDesignerProps) {
   const init = useMemo(() => initialXml ? xmlToBlocks(initialXml) : { blocks: [], width: 80, printers: "" }, [initialXml]);
   
+  // ─── States ────────────────────────────────────────────────────────────────
   const [blocks, setBlocks]         = useState<Block[]>(init.blocks);
   const [width, setWidth]           = useState<number>(init.width);
   const [printers, setPrinters]     = useState<string>(init.printers);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [draggedId, setDraggedId]   = useState<string | null>(null);
 
-  // Undo/Redo History
-  const [history, setHistory] = useState<Block[][]>([]);
-  const [redoStack, setRedoStack] = useState<Block[][]>([]);
+  // Print Modal States
+  const [showPrintModal, setShowPrintModal] = useState(false);
+  const [showHelpModal, setShowHelpModal]   = useState(false);
+  const [isPrinting, setIsPrinting]         = useState(false);
+  const [printData, setPrintData]           = useState<Record<string, string>>({});
+  const [printDataList, setPrintDataList]   = useState<Record<string, string>[]>([]);
+  const [printTab, setPrintTab]             = useState<"manual" | "batch">("manual");
+  const [availableLogicalPrinters, setAvailableLogicalPrinters] = useState<LogicalPrinterDto[]>([]);
 
+  // History States
+  const [history, setHistory]     = useState<Block[][]>([]);
+  const [redoStack, setRedoStack] = useState<Block[][]>([]);
+  const [isPrinterSelectorOpen, setIsPrinterSelectorOpen] = useState(false);
+  const [printerSearch, setPrinterSearch] = useState("");
+
+  // ─── Memos & Helpers ────────────────────────────────────────────────────────
+  const cols = width === 58 ? 32 : 42;
+  const selected = blocks.find(b => b.id === selectedId) ?? null;
+  const detectedVars = useMemo(() => extractVars(blocks), [blocks]);
+  const listVars = useMemo(() => {
+    const sets = new Set<string>();
+    blocks.forEach(b => { if(b.type === "each") sets.add(b.listVar); });
+    return Array.from(sets);
+  }, [blocks]);
+
+  // ─── Callbacks ──────────────────────────────────────────────────────────────
   const pushHistory = useCallback((current: Block[]) => {
     setHistory(h => {
       const next = [...h, current];
@@ -735,57 +767,45 @@ export default function TicketDesigner({ initialXml, onUpdate, apiBaseUrl }: Tic
     setBlocks(next);
   }, [blocks, redoStack]);
 
-  const cols = width === 58 ? 32 : 42;
-  const selected = blocks.find(b => b.id === selectedId) ?? null;
+  const handlePrint = useCallback(() => {
+    const initialData: Record<string, string> = {};
+    detectedVars.forEach(v => { initialData[v] = ""; });
+    setPrintData(initialData);
+    if (printDataList.length === 0) setPrintDataList([{}]);
+    setShowPrintModal(true);
+  }, [detectedVars, printDataList.length]);
 
+  // ─── Effects ────────────────────────────────────────────────────────────────
   // Sync with XML
   useEffect(() => {
     onUpdate(blocksToXml(blocks, width, printers));
   }, [blocks, width, printers, onUpdate]);
 
-  // Global Shortcuts for context
-  useEffect(() => {
-    const handleKey = (e: KeyboardEvent) => {
-      if (e.ctrlKey && e.key.toLowerCase() === 'z') { e.preventDefault(); undo(); }
-      if (e.ctrlKey && e.key.toLowerCase() === 'y') { e.preventDefault(); redo(); }
-      if (e.ctrlKey && e.key.toLowerCase() === 's') { e.preventDefault(); /* handled by parent */ }
-    };
-    window.addEventListener("keydown", handleKey);
-    return () => window.removeEventListener("keydown", handleKey);
-  }, [undo, redo]);
-
-  const [showPrintModal, setShowPrintModal] = useState(false);
-  const [showHelpModal, setShowHelpModal] = useState(false);
-  const [isPrinting, setIsPrinting] = useState(false);
-  const [printData, setPrintData] = useState<Record<string, string>>({});
-  const [printDataList, setPrintDataList] = useState<Record<string, string>[]>([]);
-  const [printTab, setPrintTab] = useState<"manual" | "batch">("manual");
-  const [availableLogicalPrinters, setAvailableLogicalPrinters] = useState<LogicalPrinterDto[]>([]);
-
-  const detectedVars = useMemo(() => extractVars(blocks), [blocks]);
-  const listVars = useMemo(() => {
-    const sets = new Set<string>();
-    blocks.forEach(b => { if(b.type === "each") sets.add(b.listVar); });
-    return Array.from(sets);
-  }, [blocks]);
-
-  // Load logical printers on mount or when API URL changes
+  // Load logical printers
   useEffect(() => {
     labelsApi.getLogicalPrinters().then(setAvailableLogicalPrinters).catch(console.error);
   }, [apiBaseUrl]);
 
-  const handlePrint = () => {
-    // Initialize data if needed
-    const initialData: Record<string, string> = {};
-    detectedVars.forEach(v => { initialData[v] = ""; });
-    setPrintData(initialData);
+  // Global Shortcuts & Events
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.key.toLowerCase() === 'z') { e.preventDefault(); undo(); }
+      if (e.ctrlKey && e.key.toLowerCase() === 'y') { e.preventDefault(); redo(); }
+      if (e.ctrlKey && e.key.toLowerCase() === 's') { e.preventDefault(); }
+    };
+    window.addEventListener("keydown", handleKey);
+    
+    const handleTriggerPrint = () => {
+      console.log("TicketDesigner: ticket-trigger-print received");
+      handlePrint();
+    };
+    window.addEventListener("ticket-trigger-print", handleTriggerPrint);
 
-    if (printDataList.length === 0) {
-      setPrintDataList([{}]);
-    }
-
-    setShowPrintModal(true);
-  };
+    return () => {
+      window.removeEventListener("keydown", handleKey);
+      window.removeEventListener("ticket-trigger-print", handleTriggerPrint);
+    };
+  }, [undo, redo, handlePrint]);
 
   const executePrint = async () => {
     if (!printers) { alert("Selecciona al menos una impresora"); return; }
@@ -913,17 +933,18 @@ export default function TicketDesigner({ initialXml, onUpdate, apiBaseUrl }: Tic
   const cats = [...new Set(PALETTE.map(p=>p.cat))];
 
   return (
-    <section style={{ flex:1, display:"flex", flexDirection:"column", height:"100%", width:"100%", overflow:"hidden",
+    <section className="ticketDesignerSection" style={{ flex:1, display:"flex", flexDirection:"column", height:"100%", width:"100%", overflow:"hidden",
       background:canvasBg, color:"var(--text,#1e293b)", fontFamily:"system-ui,sans-serif" }}>
 
       {/* ─── Print Modal ─── */}
       {showPrintModal && (
-        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.4)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:2000 }}>
-          <div style={{ background:"#fff", width:"min(95%, 700px)", maxHeight:"90vh", borderRadius:12, boxShadow:"0 20px 25px -5px rgba(0,0,0,0.1)", display:"flex", flexDirection:"column", overflow:"hidden" }}>
-            <div style={{ padding:"1.2rem 1.5rem", borderBottom:"1px solid #f1f5f9", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-              <h3 style={{ margin:0, fontSize:"1.1rem", fontWeight:700 }}>🖨️ Preparar Impresión</h3>
-              <button onClick={()=>setShowPrintModal(false)} style={{ background:"none", border:"none", fontSize:"1.5rem", cursor:"pointer", color:"#94a3b8" }}>&times;</button>
-            </div>
+        <Portal>
+        <div className="modalBackdrop" style={{ zIndex:2100 }}>
+          <div className="modalCard" onClick={e=>e.stopPropagation()} style={{ width:"min(95%, 720px)", maxHeight: "90vh", display: 'flex', flexDirection: 'column' }}>
+            <h3 style={{ borderBottom: '1px solid var(--border)', paddingBottom: '0.75rem', marginBottom: '0' }}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ color: 'var(--accent)' }}><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
+              Preparar Impresión
+            </h3>
             
             <div style={{ flex:1, overflowY:"auto", padding:"1.5rem" }}>
               <div style={{ display:"flex", gap:"1rem", marginBottom:"1.5rem" }}>
@@ -1044,26 +1065,26 @@ export default function TicketDesigner({ initialXml, onUpdate, apiBaseUrl }: Tic
               )}
             </div>
 
-            <div style={{ padding:"1.2rem 1.5rem", borderTop:"1px solid #f1f5f9", display:"flex", justifyContent:"flex-end", gap:"0.8rem", background:"#f8fafc" }}>
-              <button onClick={()=>setShowPrintModal(false)} 
-                style={{ padding:"0.6rem 1.2rem", borderRadius:8, border:"1px solid #e2e8f0", background:"#fff", cursor:"pointer", fontWeight:600, color: "#1e293b" }}>Cancelar</button>
-              <button onClick={executePrint} disabled={isPrinting}
-                style={{ padding:"0.6rem 1.5rem", borderRadius:8, border:"none", background:"#16a34a", color:"#fff", cursor:"pointer", fontWeight:700 }}>
+            <div className="modalActions">
+              <button className="secondary" onClick={()=>setShowPrintModal(false)}>Cancelar</button>
+              <button className="primary" onClick={executePrint} disabled={isPrinting}>
                 {isPrinting ? "Enviando..." : "🚀 Enviar a Impresora"}
               </button>
             </div>
           </div>
         </div>
+        </Portal>
       )}
 
       {/* ─── Help / Documentation Modal ─── */}
       {showHelpModal && (
-        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.4)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:2000 }}>
-          <div style={{ background:"#fff", width:"min(95%, 850px)", height:"90vh", borderRadius:12, boxShadow:"0 20px 25px -5px rgba(0,0,0,0.1)", display:"flex", flexDirection:"column", overflow:"hidden" }}>
-            <div style={{ padding:"1.2rem 1.5rem", borderBottom:"1px solid #f1f5f9", display:"flex", justifyContent:"space-between", alignItems:"center", background:"#0f172a", color:"#fff" }}>
-              <h3 style={{ margin:0, fontSize:"1.1rem", fontWeight:700 }}>📖 Guía del Motor de Tiquetes</h3>
-              <button onClick={()=>setShowHelpModal(false)} style={{ background:"none", border:"none", fontSize:"1.5rem", cursor:"pointer", color:"#94a3b8" }}>&times;</button>
-            </div>
+        <Portal>
+        <div className="modalBackdrop" style={{ zIndex: 2100 }}>
+          <div className="modalCard" onClick={e=>e.stopPropagation()} style={{ width:"min(95%, 850px)", height:"90vh", display: 'flex', flexDirection: 'column' }}>
+            <h3 style={{ borderBottom: '1px solid var(--border)', paddingBottom: '0.75rem', marginBottom: '0' }}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ color: 'var(--accent)' }}><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path></svg>
+              Guía del Motor de Tiquetes
+            </h3>
             <div style={{ flex:1, overflowY:"auto", padding:"2rem", fontSize:"0.9rem", lineHeight:1.6, color:"#334155" }}>
               <section style={{ marginBottom:"2rem" }}>
                 <h4 style={{ borderBottom:"2px solid #e2e8f0", paddingBottom:8, color:"#0f172a" }}>🚀 Introducción</h4>
@@ -1137,40 +1158,64 @@ export default function TicketDesigner({ initialXml, onUpdate, apiBaseUrl }: Tic
                 <p style={{ margin:0 }}>En el modal de impresión manual, usa el botón <b>"Rellenar Todo"</b> para poner el mismo valor en todas las variables simples rápidamente.</p>
               </section>
             </div>
-            <div style={{ padding:"1rem", borderTop:"1px solid #f1f5f9", textAlign:"right", background:"#f8fafc" }}>
-              <button onClick={()=>setShowHelpModal(false)} style={{ padding:"0.6rem 1.5rem", borderRadius:8, border:"none", background:"#0ea5e9", color:"#fff", cursor:"pointer", fontWeight:700 }}>Entendido</button>
+            <div className="modalActions">
+              <button className="primary" onClick={()=>setShowHelpModal(false)} style={{ padding: '0.6rem 2rem' }}>Entendido</button>
             </div>
           </div>
         </div>
+        </Portal>
       )}
 
       {/* Internal Toolbar (Ancho) */}
-      <div style={{ display:"flex", alignItems:"center", gap:"0.75rem", padding:"0.6rem 1rem",
+      <div className="ticketToolbar" style={{ display:"flex", alignItems:"center", gap:"0.75rem", padding:"0.6rem 1rem",
         background:panelBg, borderBottom:div, flexShrink:0, boxShadow:"0 1px 4px rgba(0,0,0,0.04)" }}>
-        <span style={{ fontSize:"0.95rem", fontWeight:800, color:"#111", letterSpacing:"-0.02em" }}>🎟️ Diseñador de Tiquetes</span>
+        
+        <button 
+          type="button" 
+          className="primary" 
+          onClick={handlePrint} 
+          disabled={isPrinting}
+          style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.5rem 1.25rem', fontSize: '0.85rem' }}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+          {isPrinting ? "Imprimiendo..." : "Imprimir"}
+        </button>
+
         <div style={{ width:1, height:20, background:"var(--border,#e2e8f0)", margin:"0 0.5rem" }} />
         <label style={{ fontSize:"0.8rem", display:"flex", alignItems:"center", gap:"0.5rem", fontWeight:500 }}>
           Ancho:
           <select value={width} onChange={e=>setWidth(parseInt(e.target.value))}
-            style={{ padding:"0.3rem 0.6rem", fontSize:"0.78rem", border:"1px solid var(--border,#cbd5e1)", borderRadius:6, background:"#fff", cursor:"pointer", fontWeight:600 }}>
+            style={{ padding:"0.3rem 0.6rem", fontSize:"0.78rem", border:"1px solid var(--border,#cbd5e1)", borderRadius:6, background:"var(--surface-alt, #fff)", color:"var(--text)", cursor:"pointer", fontWeight:600 }}>
             <option value={80}>80 mm (42 ch)</option>
             <option value={58}>58 mm (32 ch)</option>
           </select>
         </label>
         <div style={{ width:1, height:20, background:"var(--border,#e2e8f0)", margin:"0 0.5rem" }} />
-        <label style={{ fontSize:"0.8rem", display:"flex", alignItems:"center", gap:"0.5rem", fontWeight:500, flex:1 }}>
+        <label style={{ fontSize:"0.8rem", display:"flex", alignItems:"center", gap:"0.5rem", fontWeight:500 }}>
           Impresoras:
-          <PrinterSelector value={printers} onChange={setPrinters} apiBaseUrl={apiBaseUrl} />
+          <PrinterSelectorBtn value={printers} onOpen={() => setIsPrinterSelectorOpen(true)} />
         </label>
-        <button onClick={handlePrint} disabled={isPrinting} style={{ ...MINI, background: "#16a34a", color: "#fff", border: "none", fontWeight: 700, padding: "0.5rem 1rem", marginLeft: "0.5rem" }}>
-          {isPrinting ? "Imprimiendo..." : "🖨️ Imprimir"}
-        </button>
-        <button onClick={()=>setShowHelpModal(true)} style={{ ...MINI, background:"#0f172a", color:"#fff", border:"none", borderRadius:"50%", width:28, height:28, padding:0, fontSize:"1rem", cursor:"help" }}>?</button>
+        
+        <div style={{ flex: 1 }} />
+        <button
+          onClick={() => setShowHelpModal(true)}
+          title="Documentación y guía de uso"
+          style={{
+            ...MINI,
+            background: "var(--primary,#16a34a)", color: "#fff",
+            border: "none", borderRadius: "50%",
+            width: 28, height: 28, padding: 0,
+            fontSize: "0.9rem", fontWeight: 800,
+            cursor: "help", flexShrink: 0,
+            boxShadow: "0 2px 6px rgba(22,163,74,0.3)",
+            display: "flex", alignItems: "center", justifyContent: "center"
+          }}
+        >?</button>
       </div>
 
       <div style={{ flex:1, display:"grid", gridTemplateColumns:"160px 220px 1fr 380px", overflow:"hidden" }}>
         {/* 1. Palette */}
-        <aside style={{ background:panelBg, borderRight:div, overflow:"auto", padding:"0.6rem 0.5rem" }}>
+        <aside className="ticketPalette" style={{ background:panelBg, borderRight:div, overflow:"auto", padding:"0.6rem 0.5rem" }}>
           {cats.map(cat => (
             <div key={cat} style={{ marginBottom:"0.8rem" }}>
               <p style={{ fontSize:"0.63rem", fontWeight:700, letterSpacing:"0.08em", textTransform:"uppercase", color:CAT_COLOR[cat]??"#64748b", margin:"0 0 0.3rem", paddingLeft:2 }}>{cat}</p>
@@ -1182,7 +1227,7 @@ export default function TicketDesigner({ initialXml, onUpdate, apiBaseUrl }: Tic
         </aside>
 
         {/* 2. Structure */}
-        <aside style={{ background:"#f8fafc", borderRight:div, overflow:"auto", padding:"0.6rem 0.6rem" }}>
+        <aside className="ticketStructure" style={{ background:"#f8fafc", borderRight:div, overflow:"auto", padding:"0.6rem 0.6rem" }}>
           <SH c={`Estructura (${blocks.length})`} />
           {blocks.length === 0 && (
             <div style={{ padding:"1.2rem", textAlign:"center", color:"var(--muted,#64748b)", fontSize:"0.72rem", background:"#fff", borderRadius:6, border:"1px dashed var(--border,#cbd5e1)" }}>
@@ -1201,12 +1246,12 @@ export default function TicketDesigner({ initialXml, onUpdate, apiBaseUrl }: Tic
         </aside>
 
         {/* 3. Preview */}
-        <main style={{ flex:1, overflow:"auto", padding:"1.5rem", display:"flex", flexDirection:"column", alignItems:"center", background:canvasBg }}>
+        <main className="ticketCanvasArea" style={{ flex:1, overflow:"auto", padding:"1.5rem", display:"flex", flexDirection:"column", alignItems:"center", background:canvasBg }}>
            <TicketPreview blocks={blocks} cols={cols} />
         </main>
 
         {/* 4. Properties */}
-        <aside style={{ background:panelBg, borderLeft:div, overflow:"auto", padding:"0.8rem 1.2rem", boxShadow:"-2px 0 8px rgba(0,0,0,0.02)" }}>
+        <aside className="ticketProperties" style={{ background:panelBg, borderLeft:div, overflow:"auto", padding:"0.8rem 1.2rem", boxShadow:"-2px 0 8px rgba(0,0,0,0.02)" }}>
           <SH c="Propiedades" />
           {selected
             ? <PropsPanel block={selected} onChange={updateBlock} />
@@ -1217,6 +1262,60 @@ export default function TicketDesigner({ initialXml, onUpdate, apiBaseUrl }: Tic
           }
         </aside>
       </div>
+
+      {/* ─── Printer Selection Modal (Top-level) ─── */}
+      {isPrinterSelectorOpen && (
+        <Portal>
+        <div className="modalBackdrop" style={{ zIndex: 2200 }}>
+          <div className="modalCard" onClick={e => e.stopPropagation()} style={{ width: '420px' }}>
+            <h3 style={{ borderBottom: '1px solid var(--border)', paddingBottom: '0.75rem', marginBottom: '1rem' }}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ color: 'var(--accent)' }}><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
+              Seleccionar Impresoras
+            </h3>
+            <div style={{ marginBottom: '1rem', position: 'relative' }}>
+              <input 
+                autoFocus 
+                placeholder="Buscar impresora..." 
+                value={printerSearch} 
+                onChange={e => setPrinterSearch(e.target.value)} 
+                style={{ ...INP, paddingLeft: '2.5rem' }} 
+              />
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ position: 'absolute', left: '0.8rem', top: '50%', transform: 'translateY(-50%)', opacity: 0.4 }}><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+            </div>
+            <div style={{ maxHeight: '350px', overflow: 'auto', border: '1px solid var(--border)', borderRadius: 12, background: 'var(--surface, #fff)' }}>
+              {availableLogicalPrinters.filter(o => o.name.toLowerCase().includes(printerSearch.toLowerCase())).map(o => {
+                const isSelected = printers.split(",").map(v => v.trim()).includes(o.name);
+                return (
+                  <div key={o.id} onClick={() => {
+                    const selectedList = printers.split(",").map(v => v.trim()).filter(Boolean);
+                    const next = selectedList.includes(o.name) ? selectedList.filter(n => n !== o.name) : [...selectedList, o.name];
+                    setPrinters(next.join(", "));
+                  }} style={{ 
+                    padding: "12px 15px", cursor: "pointer", display: "flex", alignItems: "center", gap: "12px", 
+                    borderBottom: '1px solid #f1f5f9', background: isSelected ? "var(--bg-subtle, rgba(15, 118, 110, 0.05))" : "var(--surface, #fff)",
+                    transition: 'background 0.2s'
+                  }}>
+                    <div style={{ 
+                      width: '20px', height: '20px', borderRadius: '6px', border: '2px solid', 
+                      borderColor: isSelected ? 'var(--accent)' : '#cbd5e1',
+                      background: isSelected ? 'var(--accent)' : 'transparent',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s'
+                    }}>
+                      {isSelected && <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="4"><polyline points="20 6 9 17 4 12"></polyline></svg>}
+                    </div>
+                    <span style={{ fontSize: "0.88rem", fontWeight: isSelected ? 600 : 500, color: isSelected ? 'var(--accent)' : 'inherit' }}>{o.name}</span>
+                  </div>
+                );
+              })}
+              {availableLogicalPrinters.length === 0 && <div style={{ padding: "40px 20px", color: "#94a3b8", fontSize: "0.85rem", textAlign: "center" }}>No hay impresoras configuradas</div>}
+            </div>
+            <div className="modalActions">
+              <button type="button" className="primary" onClick={() => setIsPrinterSelectorOpen(false)} style={{ width: '100%', padding: '0.75rem' }}>Aceptar Selección</button>
+            </div>
+          </div>
+        </div>
+        </Portal>
+      )}
     </section>
   );
 }

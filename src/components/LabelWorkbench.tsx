@@ -5,6 +5,7 @@ import type { EditorDocumentSummary, UpsertEditorDocumentPayload } from "@/lib/a
 import VisualCanvasEditor from "@/components/VisualCanvasEditor";
 import TicketDesigner from "@/components/TicketDesigner";
 import LogicalPrintersManagerModal from "@/components/LogicalPrintersManagerModal";
+import { Portal } from "@/components/Portal";
 
 type Action = "parse" | "convert-to-glabels" | "convert-from-glabels";
 type DocKind = "sae" | "glabels" | "saetickets";
@@ -16,12 +17,13 @@ const sampleGlabelsXml =
   `<Glabels-document version="4.0"><Template brand="Demo" description="Demo" part="P-1" size="custom"><Label-rectangle width="144pt" height="72pt"><Layout dx="144pt" dy="72pt" nx="1" ny="1" x0="0pt" y0="0pt"/></Label-rectangle></Template><Objects/><Variables/><Data/></Glabels-document>`;
 
 const STORAGE = {
-  apiBaseUrl: "saelabel.app.apiBaseUrl",
-  action: "saelabel.app.action",
-  xml: "saelabel.app.xml",
-  history: "saelabel.app.history",
-  timeoutMs: "saelabel.app.timeoutMs",
-  sessions: "saelabel.app.sessions",
+  apiBaseUrl: "saestudio.app.apiBaseUrl",
+  action: "saestudio.app.action",
+  xml: "saestudio.app.xml",
+  history: "saestudio.app.history",
+  timeoutMs: "saestudio.app.timeoutMs",
+  sessions: "saestudio.app.sessions",
+  autoSaveEnabled: "saestudio.app.autoSaveEnabled",
 };
 
 type HistoryItem = {
@@ -145,7 +147,30 @@ function validateXmlInput(action: Action, rawXml: string): { ok: true; normalize
 export default function LabelWorkbench() {
   const [apiBaseUrl, setApiBaseUrl] = useState(DEFAULT_API_BASE_URL);
   const [timeoutMs, setTimeoutMs] = useState(30000);
-  const [xml, setXml] = useState(sampleSaeXml);
+  const [labelXml, setLabelXml] = useState(sampleSaeXml);
+  const [ticketXml, setTicketXml] = useState(`<?xml version="1.0" encoding="utf-8"?><saetickets version="1.0"><setup width="42"/><commands/></saetickets>`);
+  
+  const [docKind, setDocKind] = useState<"sae" | "glabels" | "saetickets">("sae");
+
+  // Contextual Getters
+  const xml = docKind === 'saetickets' ? ticketXml : labelXml;
+  const setXml = docKind === 'saetickets' ? setTicketXml : setLabelXml;
+
+  const [labelDocId, setLabelDocId] = useState("");
+  const [ticketDocId, setTicketDocId] = useState("");
+  const docId = docKind === 'saetickets' ? ticketDocId : labelDocId;
+  const setDocId = docKind === 'saetickets' ? setTicketDocId : setLabelDocId;
+
+  const [labelDocName, setLabelDocName] = useState("Sin titulo");
+  const [ticketDocName, setTicketDocName] = useState("Nuevo Tiquete");
+  const docName = docKind === 'saetickets' ? ticketDocName : labelDocName;
+  const setDocName = docKind === 'saetickets' ? setTicketDocName : setLabelDocName;
+
+  const [labelFileHandle, setLabelFileHandle] = useState<FileSystemFileHandle | null>(null);
+  const [ticketFileHandle, setTicketFileHandle] = useState<FileSystemFileHandle | null>(null);
+  const fileHandle = docKind === 'saetickets' ? ticketFileHandle : labelFileHandle;
+  const setFileHandle = docKind === 'saetickets' ? setTicketFileHandle : setLabelFileHandle;
+
   const [action, setAction] = useState<Action>("parse");
   const [result, setResult] = useState("");
   const [error, setError] = useState("");
@@ -176,10 +201,7 @@ export default function LabelWorkbench() {
     part: "P-1",
     size: "custom",
   });
-  const [docKind, setDocKind] = useState<"sae" | "glabels" | "saetickets">("sae");
 
-  const [docId, setDocId] = useState("");
-  const [docName, setDocName] = useState("Sin titulo");
   const [documents, setDocuments] = useState<EditorDocumentSummary[]>([]);
   const [metaVersion, setMetaVersion] = useState("1.0");
   const [metaBrand, setMetaBrand] = useState("SAE");
@@ -190,7 +212,25 @@ export default function LabelWorkbench() {
   const [propertiesModalOpen, setPropertiesModalOpen] = useState(false);
   const [saveAsModalOpen, setSaveAsModalOpen] = useState(false);
   const [saveAsName, setSaveAsName] = useState("");
-  const [fileHandle, setFileHandle] = useState<FileSystemFileHandle | null>(null);
+  const [autoSaveEnabled, setAutoSaveEnabled] = useState(true);
+  const [saveStatus, setSaveStatus] = useState<"saved" | "saving" | "modified" | "error">("saved");
+  const [darkMode, setDarkMode] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    return window.localStorage.getItem('theme') === 'dark';
+  });
+
+  // Sync dark mode to <html data-theme>
+  useEffect(() => {
+    const root = document.documentElement;
+    if (darkMode) {
+      root.setAttribute('data-theme', 'dark');
+      window.localStorage.setItem('theme', 'dark');
+    } else {
+      root.removeAttribute('data-theme');
+      window.localStorage.setItem('theme', 'light');
+    }
+  }, [darkMode]);
+
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -202,6 +242,7 @@ export default function LabelWorkbench() {
     const savedHistory = window.localStorage.getItem(STORAGE.history);
     const savedTimeoutMs = window.localStorage.getItem(STORAGE.timeoutMs);
     const savedSessions = window.localStorage.getItem(STORAGE.sessions);
+    const savedAutoSave = window.localStorage.getItem(STORAGE.autoSaveEnabled);
 
     if (savedApiBaseUrl) setApiBaseUrl(savedApiBaseUrl);
     if (savedAction) setAction(savedAction);
@@ -221,6 +262,7 @@ export default function LabelWorkbench() {
         setSessions([]);
       }
     }
+    if (savedAutoSave !== null) setAutoSaveEnabled(savedAutoSave === "true");
   }, []);
 
   useEffect(() => {
@@ -237,8 +279,9 @@ export default function LabelWorkbench() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    window.localStorage.setItem(STORAGE.xml, xml);
-  }, [xml]);
+    window.localStorage.setItem(STORAGE.xml, labelXml);
+    window.localStorage.setItem('saestudio.app.ticketXml', ticketXml);
+  }, [labelXml, ticketXml]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -255,17 +298,119 @@ export default function LabelWorkbench() {
     window.localStorage.setItem(STORAGE.sessions, JSON.stringify(sessions));
   }, [sessions]);
 
-  // Global Shortcut: Ctrl+S to save
   useEffect(() => {
-    const handleSave = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === "s") {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(STORAGE.autoSaveEnabled, String(autoSaveEnabled));
+  }, [autoSaveEnabled]);
+
+  // Global Shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName?.toUpperCase();
+      const isTyping = tag === 'TEXTAREA'; // don't intercept textarea Enter
+
+      // ── Ctrl shortcuts (always active) ──────────────────────────────────────
+      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
         e.preventDefault();
         saveDoc();
+        return;
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key === 'p' && docKind === 'saetickets') {
+        e.preventDefault();
+        document.dispatchEvent(new CustomEvent('ticket-trigger-print'));
+        return;
+      }
+
+      // ── Modal keyboard shortcuts ─────────────────────────────────────────────
+      const anyModalOpen =
+        saveAsModalOpen || propertiesModalOpen || showNewConfigModal ||
+        showNewTypeModal || showApiConfigModal || showOpenDocModal ||
+        showResultModal || showTemplatesGallery || showAboutModal || showPrintersManagerModal;
+
+      if (!anyModalOpen) return;
+
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        // Close in priority order (topmost/most recently opened first)
+        if (saveAsModalOpen)         { setSaveAsModalOpen(false); return; }
+        if (propertiesModalOpen)     { setPropertiesModalOpen(false); return; }
+        if (showNewConfigModal)      { setShowNewConfigModal(false); return; }
+        if (showNewTypeModal)        { setShowNewTypeModal(false); return; }
+        if (showApiConfigModal)      { setShowApiConfigModal(false); return; }
+        if (showOpenDocModal)        { setShowOpenDocModal(false); return; }
+        if (showResultModal)         { setShowResultModal(false); return; }
+        if (showTemplatesGallery)    { setShowTemplatesGallery(false); return; }
+        if (showAboutModal)          { setShowAboutModal(false); return; }
+        if (showPrintersManagerModal){ setShowPrintersManagerModal(false); return; }
+      }
+
+      if (e.key === 'Enter' && !isTyping) {
+        e.preventDefault();
+        // Trigger primary action for the topmost modal
+        if (saveAsModalOpen) {
+          void saveAsDoc();
+          return;
+        }
+        if (showNewConfigModal) {
+          // click the primary button
+          (document.querySelector('.modalCard button.primary') as HTMLButtonElement)?.click();
+          return;
+        }
+        if (showApiConfigModal) {
+          (document.querySelector('.modalCard button.primary') as HTMLButtonElement)?.click();
+          return;
+        }
+        // For info-only modals just close them
+        if (showResultModal  || showAboutModal) {
+          setShowResultModal(false);
+          setShowAboutModal(false);
+          return;
+        }
       }
     };
-    window.addEventListener("keydown", handleSave);
-    return () => window.removeEventListener("keydown", handleSave);
-  }, [xml, docId, docName, docKind, metaVersion, metaBrand, metaDescription, metaPart, metaSize]);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [
+    labelXml, ticketXml, labelDocId, ticketDocId, labelDocName, ticketDocName,
+    docKind, labelFileHandle, ticketFileHandle,
+    saveAsModalOpen, propertiesModalOpen, showNewConfigModal, showNewTypeModal,
+    showApiConfigModal, showOpenDocModal, showResultModal, showTemplatesGallery,
+    showAboutModal, showPrintersManagerModal,
+  ]);
+
+  // Auto-save effect Label
+  useEffect(() => {
+    if (!autoSaveEnabled || !labelDocId) return;
+    setSaveStatus("modified");
+    const timer = setTimeout(async () => {
+      try {
+        setSaveStatus("saving");
+        await editorApi.saveDocument({ id: labelDocId, name: labelDocName, kind: (docKind === 'saetickets' ? 'sae' : docKind) as any, xml: labelXml });
+        setSaveStatus("saved");
+      } catch (err) {
+        console.error("Auto-save failed label:", err);
+        setSaveStatus("error");
+      }
+    }, 2000);
+    return () => clearTimeout(timer);
+  }, [labelXml, labelDocId, labelDocName, autoSaveEnabled]);
+
+  // Auto-save effect Ticket
+  useEffect(() => {
+    if (!autoSaveEnabled || !ticketDocId) return;
+    setSaveStatus("modified");
+    const timer = setTimeout(async () => {
+      try {
+        setSaveStatus("saving");
+        await editorApi.saveDocument({ id: ticketDocId, name: ticketDocName, kind: 'saetickets', xml: ticketXml });
+        setSaveStatus("saved");
+      } catch (err) {
+        console.error("Auto-save failed ticket:", err);
+        setSaveStatus("error");
+      }
+    }, 2000);
+    return () => clearTimeout(timer);
+  }, [ticketXml, ticketDocId, ticketDocName, autoSaveEnabled]);
 
   const buttonLabel = useMemo(() => {
     if (action === "parse") return "Probar parse";
@@ -290,23 +435,25 @@ export default function LabelWorkbench() {
   }, [editorApi]);
 
   const saveDoc = async () => {
-    if (!fileHandle) {
+    setSaveStatus("saving");
+    const currentFileHandle = docKind === 'saetickets' ? ticketFileHandle : labelFileHandle;
+    if (!currentFileHandle) {
       await saveAsDoc();
       return;
     }
 
     try {
-      const writable = await (fileHandle as any).createWritable();
+      const writable = await (currentFileHandle as any).createWritable();
       await writable.write(xml);
       await writable.close();
       
       if (docId) {
         await editorApi.saveDocument({ id: docId, name: docName, kind: docKind, xml });
       }
-      setResult("Guardado exitosamente.");
-      setShowResultModal(true);
+      setSaveStatus("saved");
     } catch (e) {
       console.error("Failed to save:", e);
+      setSaveStatus("error");
       setError("Error al guardar archivo.");
     }
   };
@@ -317,8 +464,8 @@ export default function LabelWorkbench() {
       await editorApi.deleteDocument(id);
       if (docId === id) {
         setDocId("");
-        setDocName("Sin título");
-        setXml(sampleSaeXml);
+        setDocName(docKind === 'saetickets' ? "Nuevo Tiquete" : "Sin título");
+        setXml(docKind === 'saetickets' ? `<?xml version="1.0" encoding="utf-8"?><saetickets version="1.0"><setup width="42"/><commands/></saetickets>` : sampleSaeXml);
       }
       void refreshDocuments();
     } catch (e) {
@@ -326,23 +473,76 @@ export default function LabelWorkbench() {
     }
   };
 
+  const openLocalFile = async () => {
+    if (typeof window !== "undefined" && "showOpenFilePicker" in window) {
+      try {
+        const [handle] = await (window as any).showOpenFilePicker({
+          types: [{
+            description: 'XML Files',
+            accept: { 'application/xml': ['.xml', '.saelabels', '.saetickets'] },
+          }],
+        });
+        setFileHandle(handle);
+        const file = await handle.getFile();
+        const text = await file.text();
+        const sanitized = sanitizeXmlInput(text);
+        
+        // Infer kind from content or extension
+        let kind: DocKind = "sae";
+        if (sanitized.includes("<saetickets") || file.name.endsWith(".saetickets")) kind = "saetickets";
+        else if (sanitized.includes("<saelabels") || file.name.endsWith(".saelabels")) kind = "sae";
+        else if (sanitized.includes("<Glabels-document")) kind = "glabels";
+        
+        setDocKind(kind);
+        
+        // Contextual updates
+        if (kind === "saetickets") {
+          setTicketXml(sanitized);
+          setTicketDocName(file.name.replace(/\.(xml|saetickets)$/i, ""));
+          setTicketDocId("");
+          setTicketFileHandle(handle);
+        } else {
+          setLabelXml(sanitized);
+          setLabelDocName(file.name.replace(/\.(xml|saelabels)$/i, ""));
+          setLabelDocId("");
+          setLabelFileHandle(handle);
+        }
+        
+        setSaveStatus("saved");
+        setError("");
+        setResult("");
+      } catch (e: any) {
+        if (e.name === "AbortError") return;
+        console.error("File Picker failed:", e);
+      }
+    } else {
+      fileInputRef.current?.click();
+    }
+  };
+
   const saveAsDoc = async () => {
     // Priority: Local Save via Picker
     if (typeof window !== "undefined" && "showSaveFilePicker" in window) {
       try {
+        const ext = docKind === 'saetickets' ? '.saetickets' : '.saelabels';
+        const desc = docKind === 'saetickets' ? 'SAE Ticket' : 'SAE Label';
         const handle = await (window as any).showSaveFilePicker({
-          suggestedName: docName || "etiqueta.xml",
+          suggestedName: (docName || "documento") + ext,
           types: [{
-            description: 'XML Files',
-            accept: { 'application/xml': ['.xml'] },
+            description: desc,
+            accept: { 'application/xml': [ext] },
           }],
         });
         setFileHandle(handle);
         const writable = await handle.createWritable();
         await writable.write(xml);
         await writable.close();
-        setResult("Guardado como nuevo archivo local.");
-        setShowResultModal(true);
+        
+        // Update name from picker
+        const file = await handle.getFile();
+        setDocName(file.name.replace(/\.(saelabels|saetickets|xml)$/i, ""));
+        
+        setSaveStatus("saved");
         return;
       } catch (e: any) {
         if (e.name === "AbortError") return;
@@ -378,12 +578,21 @@ export default function LabelWorkbench() {
   const loadDocument = async (id: string) => {
     try {
       const full = await editorApi.getDocument(id);
-      setDocId(full.id);
-      setDocName(full.name);
-      setXml(full.xml);
       const kind = full.kind as DocKind;
-      setNewDocumentDraft(p => ({ ...p, kind: kind === 'saetickets' ? 'sae' : kind }));
       setDocKind(kind);
+      
+      if (kind === 'saetickets') {
+        setTicketDocId(full.id);
+        setTicketDocName(full.name);
+        setTicketXml(full.xml);
+        setTicketFileHandle(null);
+      } else {
+        setLabelDocId(full.id);
+        setLabelDocName(full.name);
+        setLabelXml(full.xml);
+        setLabelFileHandle(null);
+        setNewDocumentDraft(p => ({ ...p, kind: (kind as any) === 'saetickets' ? 'sae' : kind }));
+      }
       setError("");
     } catch (e) {
       setError(e instanceof Error ? e.message : "No se pudo cargar.");
@@ -398,7 +607,7 @@ export default function LabelWorkbench() {
       // For now, let's just make sure it descends or stays in kind.
       // But user asked for SAE/GLabels transformations.
       
-      const targetKind = newDocumentDraft.kind === "sae" ? "glabels" : "sae";
+      const targetKind = (newDocumentDraft.kind as any) === "sae" ? "glabels" : "sae";
       const confirmConversion = window.confirm(`Deseas convertir el documento a ${targetKind} antes de exportar?`);
       
       if (confirmConversion) {
@@ -464,6 +673,12 @@ export default function LabelWorkbench() {
     setResult("");
     setPingStatus("");
   };
+
+  const handleSwitchKind = (target: DocKind) => {
+    if (docKind === target) return;
+    setDocKind(target);
+  };
+
 
   const createNewDocument = (kind: "sae" | "glabels") => {
     setXml(kind === "sae" ? sampleSaeXml : sampleGlabelsXml);
@@ -652,17 +867,25 @@ export default function LabelWorkbench() {
     try {
       const text = await file.text();
       const sanitized = sanitizeXmlInput(text);
-      setXml(sanitized);
-      setDocName(file.name.replace(/\.(xml|saelabels|saetikets)$/i, ""));
-      setDocId(""); // New from file
       
       // Infer kind
-      if (sanitized.includes("<saetickets")) {
-        setDocKind("saetickets");
-      } else if (sanitized.includes("<saelabels")) {
-        setDocKind("sae");
-      } else if (sanitized.includes("<Glabels-document")) {
-        setDocKind("glabels");
+      let kind: DocKind = "sae";
+      if (sanitized.includes("<saetickets") || file.name.endsWith(".saetickets")) kind = "saetickets";
+      else if (sanitized.includes("<saelabels") || file.name.endsWith(".saelabels")) kind = "sae";
+      else if (sanitized.includes("<Glabels-document")) kind = "glabels";
+      
+      setDocKind(kind);
+
+      if (kind === "saetickets") {
+        setTicketXml(sanitized);
+        setTicketDocName(file.name.replace(/\.(xml|saetickets)$/i, ""));
+        setTicketDocId("");
+        setTicketFileHandle(null);
+      } else {
+        setLabelXml(sanitized);
+        setLabelDocName(file.name.replace(/\.(xml|saelabels)$/i, ""));
+        setLabelDocId("");
+        setLabelFileHandle(null);
       }
 
       setError("");
@@ -730,6 +953,32 @@ export default function LabelWorkbench() {
     return () => window.removeEventListener("click", handleOutsideClick);
   }, []);
 
+  // Menu state and logic
+  const [activeMenu, setActiveMenu] = useState<string | null>(null);
+  const [activeSubMenu, setActiveSubMenu] = useState<string | null>(null);
+
+  const toggleMenu = (menuName: string) => {
+    setActiveMenu(prev => prev === menuName ? null : menuName);
+    setActiveSubMenu(null);
+    if (menuName === 'archivo') {
+      void refreshDocuments();
+    }
+  };
+
+  const toggleSubMenu = (subMenuName: string) => {
+    setActiveSubMenu(prev => prev === subMenuName ? null : subMenuName);
+  };
+
+  const closeAllMenus = () => {
+    setActiveMenu(null);
+    setActiveSubMenu(null);
+    if (typeof document !== "undefined") {
+      document.querySelectorAll(".appMenu details[open]").forEach((el) => {
+        (el as HTMLDetailsElement).open = false;
+      });
+    }
+  };
+
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (!(e.target as HTMLElement).closest(".appMenu details")) {
@@ -740,25 +989,21 @@ export default function LabelWorkbench() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  const closeAllMenus = () => {
-    if (typeof document === "undefined") return;
-    document.querySelectorAll(".appMenu details[open]").forEach((el) => {
-      (el as HTMLDetailsElement).open = false;
-    });
-  };
-
   return (
     <section className="panel visualMode">
       <div className="studioWrapper">
         <nav className="appMenu" data-tauri-drag-region>
-          <details className="menuDropdown">
-            <summary className="menuItem active">Archivo</summary>
+          <details className="menuDropdown" open={activeMenu === 'archivo'}>
+            <summary className="menuItem" style={{ textAlign: 'left' }} onClick={(e) => { e.preventDefault(); toggleMenu('archivo'); }}>Archivo</summary>
             <div className="menuDropdownList">
               <button type="button" className="menuDropdownItem" onClick={() => { openNewDocumentTypeModal(); closeAllMenus(); }}>
                 Nuevo...
               </button>
-              <button type="button" className="menuDropdownItem" onClick={() => { setShowOpenDocModal(true); closeAllMenus(); }}>
-                Abrir...
+              <button type="button" className="menuDropdownItem" onClick={() => { refreshDocuments(); setShowOpenDocModal(true); closeAllMenus(); }}>
+                Abrir de biblioteca...
+              </button>
+              <button type="button" className="menuDropdownItem" onClick={() => { openLocalFile(); closeAllMenus(); }}>
+                Abrir Archivo Local...
               </button>
               <button type="button" className="menuDropdownItem" onClick={() => { setShowTemplatesGallery(true); closeAllMenus(); }}>
                 Plantillas
@@ -780,30 +1025,38 @@ export default function LabelWorkbench() {
                 Eliminar documento
               </button>
               <div className="menuDivider" />
-              <details className="menuSubDropdown">
-                <summary className="menuDropdownItem">Etiquetas recientes</summary>
+              <details className="menuSubDropdown" open={activeSubMenu === 'labels'}>
+                <summary className="menuDropdownItem" onClick={(e) => { e.preventDefault(); toggleSubMenu('labels'); }}>
+                  <span>Etiquetas recientes</span>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.5, flexShrink: 0 }}><polyline points="9 18 15 12 9 6"/></svg>
+                </summary>
                 <div className="menuSubDropdownList">
                   {documents.filter(d => d.kind !== 'saetickets').length > 0 ? documents.filter(d => d.kind !== 'saetickets').slice(0, 10).map(d => (
-                    <button key={d.id} type="button" className="menuDropdownItem" onClick={() => { loadDocument(d.id); closeAllMenus(); }}>
-                      {d.name}
+                    <button key={d.id} type="button" className="menuDropdownItem" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem', width: '100%', padding: '0.5rem 0.75rem' }} onClick={() => { loadDocument(d.id); closeAllMenus(); }}>
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, fontSize: '0.8rem' }}>{d.name}</span>
+                      <small style={{ opacity: 0.4, fontSize: '0.62rem', flexShrink: 0, fontWeight: 700 }}>{new Date(d.updatedAtUtc || Date.now()).toLocaleDateString()}</small>
                     </button>
                   )) : <div className="menuDropdownItem disabled">No hay etiquetas</div>}
                 </div>
               </details>
-              <details className="menuSubDropdown">
-                <summary className="menuDropdownItem">Tiquetes recientes</summary>
+              <details className="menuSubDropdown" open={activeSubMenu === 'tickets'}>
+                <summary className="menuDropdownItem" onClick={(e) => { e.preventDefault(); toggleSubMenu('tickets'); }}>
+                  <span>Tiquetes recientes</span>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.5, flexShrink: 0 }}><polyline points="9 18 15 12 9 6"/></svg>
+                </summary>
                 <div className="menuSubDropdownList">
                   {documents.filter(d => d.kind === 'saetickets').length > 0 ? documents.filter(d => d.kind === 'saetickets').slice(0, 10).map(d => (
-                    <button key={d.id} type="button" className="menuDropdownItem" onClick={() => { loadDocument(d.id); closeAllMenus(); }}>
-                      {d.name}
+                    <button key={d.id} type="button" className="menuDropdownItem" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem', width: '100%', padding: '0.5rem 0.75rem' }} onClick={() => { loadDocument(d.id); closeAllMenus(); }}>
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, fontSize: '0.8rem' }}>{d.name}</span>
+                      <small style={{ opacity: 0.4, fontSize: '0.62rem', flexShrink: 0, fontWeight: 700 }}>{new Date(d.updatedAtUtc || Date.now()).toLocaleDateString()}</small>
                     </button>
                   )) : <div className="menuDropdownItem disabled">No hay tiquetes</div>}
                 </div>
               </details>
             </div>
           </details>
-          <details className="menuDropdown">
-            <summary className="menuItem" style={{ textAlign: 'left' }}>Editar</summary>
+          <details className="menuDropdown" open={activeMenu === 'editar'}>
+            <summary className="menuItem" style={{ textAlign: 'left' }} onClick={(e) => { e.preventDefault(); toggleMenu('editar'); }}>Editar</summary>
             <div className="menuDropdownList">
               <button type="button" className="menuDropdownItem" onClick={() => { 
                 document.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true }));
@@ -827,8 +1080,8 @@ export default function LabelWorkbench() {
               </button>
             </div>
           </details>
-          <details className="menuDropdown">
-            <summary className="menuItem" style={{ textAlign: 'left' }}>Configuraciones</summary>
+          <details className="menuDropdown" open={activeMenu === 'config'}>
+            <summary className="menuItem" style={{ textAlign: 'left' }} onClick={(e) => { e.preventDefault(); toggleMenu('config'); }}>Configuraciones</summary>
             <div className="menuDropdownList">
               <button type="button" className="menuDropdownItem" onClick={() => { openApiConfigModal(); closeAllMenus(); }}>
                 Config API
@@ -836,13 +1089,87 @@ export default function LabelWorkbench() {
               <button type="button" className="menuDropdownItem" onClick={() => { setShowPrintersManagerModal(true); closeAllMenus(); }}>
                 Impresoras Lógicas
               </button>
+              <div className="menuDivider" />
+              <div className="menuDropdownItem" style={{ cursor: 'default' }} onClick={(e) => e.stopPropagation()}>
+                <label className="toggleLabel" style={{ padding: 0, width: '100%' }}>
+                  <span style={{ fontSize: '0.85rem', fontWeight: 500 }}>Auto-guardado</span>
+                  <span
+                    className="toggleTrack"
+                    data-checked={String(autoSaveEnabled)}
+                    onClick={() => setAutoSaveEnabled(!autoSaveEnabled)}
+                    role="switch"
+                    aria-checked={autoSaveEnabled}
+                  >
+                    <span className="toggleThumb" />
+                  </span>
+                </label>
+              </div>
             </div>
           </details>
           <div className="menuItem" onClick={() => setShowAboutModal(true)}>Acerca de</div>
 
           <div style={{ flex: 1, minWidth: '20px' }} data-tauri-drag-region />
 
+          {/* Centered Brand Logo & Title */}
+          <div style={{ 
+            position: 'absolute', left: '50%', transform: 'translateX(-50%)',
+            pointerEvents: 'none', userSelect: 'none',
+            display: 'flex', alignItems: 'center', gap: '0.6rem'
+          }} data-tauri-drag-region>
+            <div style={{
+              background: 'linear-gradient(135deg, #16a34a 0%, #15803d 100%)',
+              width: '24px', height: '24px', borderRadius: '6px',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              boxShadow: '0 2px 4px rgba(22, 163, 74, 0.2)'
+            }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+              </svg>
+            </div>
+            <span className="studioLogoText" style={{ 
+              fontSize: '0.9rem', fontWeight: 800, 
+              background: 'linear-gradient(to right, #111, #444)',
+              WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent',
+              letterSpacing: '-0.01em', fontFamily: 'Inter, system-ui, sans-serif'
+            }}>
+              SAE <span style={{ color: '#16a34a', WebkitTextFillColor: '#16a34a' }}>Studio</span>
+            </span>
+          </div>
+
           <div className="windowControls">
+            <span
+              style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginRight: '0.25rem', userSelect: 'none' }}
+              title={darkMode ? 'Modo oscuro activo — click para cambiar a claro' : 'Modo claro activo — click para cambiar a oscuro'}
+            >
+              {/* Sun / Moon SVG icon */}
+              <span style={{ opacity: 0.6, display: 'flex', alignItems: 'center', color: 'var(--muted)' }}>
+                {darkMode ? (
+                  // Moon icon
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+                  </svg>
+                ) : (
+                  // Sun icon
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="12" cy="12" r="5"/>
+                    <line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/>
+                    <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+                    <line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/>
+                    <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+                  </svg>
+                )}
+              </span>
+              <span
+                className="toggleTrack"
+                data-checked={String(darkMode)}
+                onClick={() => setDarkMode(d => !d)}
+                role="switch"
+                aria-checked={darkMode}
+                style={{ cursor: 'pointer' }}
+              >
+                <span className="toggleThumb" />
+              </span>
+            </span>
             <button className="winBtn" onClick={() => getCurrentWindow().minimize()}>
               <svg width="10" height="1" viewBox="0 0 10 1"><line x1="0" y1="0.5" x2="10" y2="0.5" stroke="currentColor" strokeWidth="1"/></svg>
             </button>
@@ -856,49 +1183,32 @@ export default function LabelWorkbench() {
         </nav>
 
         {/* ── Conmutador de Vistas (Tabs) ── */}
-        {xml && (
-          <div style={{
-            display: 'flex', alignItems: 'center', gap: '4px',
-            padding: '4px 12px', borderBottom: '1px solid var(--border,#e2e8f0)',
-            background: '#f1f5f9', flexShrink: 0, height: '32px'
-          }}>
-            <span style={{ fontSize: '0.68rem', color: 'var(--muted,#64748b)', marginRight: '6px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase' }}>DIBUJO DE:</span>
-            
-            {(['sae', 'glabels'] as const).slice(0, 1).map(k => (
-              <button key={k} onClick={() => setDocKind(k)}
-                style={{
-                  padding: '2px 14px', fontSize: '0.78rem', borderRadius: '6px 6px 0 0', border: '1px solid',
-                  cursor: 'pointer', fontWeight: docKind === k ? 700 : 500,
-                  transition: 'background 0.2s, color 0.2s',
-                  background: docKind === k ? '#fff' : 'transparent',
-                  color: docKind === k ? 'var(--primary,#16a34a)' : '#64748b',
-                  borderColor: docKind === k ? 'var(--border,#e2e8f0)' : 'transparent',
-                  borderBottomColor: docKind === k ? '#fff' : 'transparent',
-                  marginBottom: '-1px',
-                  display: 'flex', alignItems: 'center', gap: '0.4rem'
-                }}>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
-                Etiqueta
-              </button>
-            ))}
-
-            <button onClick={() => setDocKind('saetickets')}
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: '2px',
+          padding: '0 8px', borderBottom: '1px solid var(--border,#e2e8f0)',
+          background: '#f8fafc', flexShrink: 0, height: '36px'
+        }}>
+          {(['sae', 'saetickets'] as const).map(k => (
+            <button key={k} onClick={() => handleSwitchKind(k)}
+              className={`designerTab ${docKind === k ? 'active' : ''}`}
               style={{
-                padding: '2px 14px', fontSize: '0.78rem', borderRadius: '6px 6px 0 0', border: '1px solid',
-                cursor: 'pointer', fontWeight: docKind === 'saetickets' ? 700 : 500,
-                transition: 'background 0.2s, color 0.2s',
-                background: docKind === 'saetickets' ? '#fff' : 'transparent',
-                color: docKind === 'saetickets' ? 'var(--primary,#16a34a)' : '#64748b',
-                borderColor: docKind === 'saetickets' ? 'var(--border,#e2e8f0)' : 'transparent',
-                borderBottomColor: docKind === 'saetickets' ? '#fff' : 'transparent',
-                marginBottom: '-1px',
-                display: 'flex', alignItems: 'center', gap: '0.4rem'
+                padding: '0 20px', fontSize: '0.82rem', height: '100%',
+                border: 'none', borderBottom: docKind === k ? '2px solid var(--primary,#16a34a)' : '2px solid transparent',
+                cursor: 'pointer', fontWeight: docKind === k ? 700 : 500,
+                transition: 'all 0.2s',
+                background: docKind === k ? '#fff' : 'transparent',
+                color: docKind === k ? '#111' : '#64748b',
+                display: 'flex', alignItems: 'center', gap: '0.5rem'
               }}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect x="2" y="4" width="20" height="16" rx="2"/><line x1="6" y1="8" x2="6" y2="8"/><line x1="6" y1="12" x2="6" y2="12"/><line x1="6" y1="16" x2="6" y2="16"/></svg>
-              Tiquete
+              {k === 'saetickets' ? (
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect x="2" y="4" width="20" height="16" rx="2"/><line x1="6" y1="8" x2="6" y2="8"/><line x1="6" y1="12" x2="6" y2="12"/><line x1="6" y1="16" x2="6" y2="16"/></svg>
+              ) : (
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
+              )}
+              {k === 'saetickets' ? 'Diseñador de Tiquetes' : 'Diseñador de Etiquetas'}
             </button>
-          </div>
-        )}
+          ))}
+        </div>
 
         <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column', background: '#fff' }}>
           {docKind === 'saetickets' ? (
@@ -942,16 +1252,36 @@ export default function LabelWorkbench() {
 
         <footer className="studioFooter">
           <div className="footerStatus">
-            <span className="dot" /> Ready
+            <span className={`dot ${saveStatus}`} /> 
+            <span style={{ fontWeight: 600, fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              {saveStatus === "saved" && "Guardado"}
+              {saveStatus === "saving" && "Guardando..."}
+              {saveStatus === "modified" && "Cambios pendientes"}
+              {saveStatus === "error" && "Error al guardar"}
+            </span>
           </div>
-          <div className="footerMeta">
-            {docName || "Untitled"} • {metaSize || "custom"} • SAE Studio v1.0.0
+
+          <div className="metaStats">
+            <div className="metaItem">
+              <span className="metaLabel">Documento:</span>
+              <span className="metaValue">{docName || "Sin título"}</span>
+            </div>
+            <div className="metaDivider" />
+            <div className="metaItem">
+              <span className="metaLabel">Tamaño:</span>
+              <span className="metaValue">{metaSize || "custom"}</span>
+            </div>
+            <div className="metaDivider" />
+            <div className="metaItem">
+              <span className="metaValue" style={{ opacity: 0.8 }}>SAE Studio v1.0.0</span>
+            </div>
           </div>
         </footer>
       </div>
 
       {showTemplatesGallery && (
-        <div className="modalBackdrop" onClick={() => setShowTemplatesGallery(false)}>
+        <Portal>
+        <div className="modalBackdrop">
           <div className="modalCard" onClick={(e) => e.stopPropagation()} style={{ width: '800px', maxWidth: '95vw', background: '#f8fafc' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
               <div>
@@ -1047,9 +1377,11 @@ export default function LabelWorkbench() {
             </div>
           </div>
         </div>
+        </Portal>
       )}
 
       {showNewTypeModal && (
+        <Portal>
         <div className="modalBackdrop">
           <div className="modalCard" onClick={(e) => e.stopPropagation()}>
             <h3>Nueva Etiqueta</h3>
@@ -1114,8 +1446,10 @@ export default function LabelWorkbench() {
             </div>
           </div>
         </div>
+        </Portal>
       )}
       {showNewConfigModal && (
+        <Portal>
         <div className="modalBackdrop">
           <div className="modalCard" onClick={(e) => e.stopPropagation()}>
             <h3>Configurar etiqueta ({newDocumentDraft.kind})</h3>
@@ -1173,9 +1507,11 @@ export default function LabelWorkbench() {
             </div>
           </div>
         </div>
+        </Portal>
       )}
       {showApiConfigModal && (
-        <div className="modalBackdrop" onClick={() => setShowApiConfigModal(false)}>
+        <Portal>
+        <div className="modalBackdrop">
           <div className="modalCard" onClick={(e) => e.stopPropagation()} style={{ width: '460px', maxWidth: '95vw' }}>
             <h3 style={{ marginTop: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M4.93 4.93a10 10 0 0 0 0 14.14"/></svg>
@@ -1231,9 +1567,11 @@ export default function LabelWorkbench() {
             </div>
           </div>
         </div>
+        </Portal>
       )}
       {showOpenDocModal && (
-        <div className="modalBackdrop" onClick={() => setShowOpenDocModal(false)}>
+        <Portal>
+        <div className="modalBackdrop">
           <div className="modalCard" onClick={(e) => e.stopPropagation()} style={{ width: '600px', maxWidth: '95vw', background: '#f8fafc' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
               <h3 style={{ margin: 0 }}>Abrir documento de base de datos</h3>
@@ -1246,12 +1584,8 @@ export default function LabelWorkbench() {
                 value={openDocSearch}
                 onChange={(e) => setOpenDocSearch(e.target.value)}
                 autoFocus
-                style={{ flex: 1 }}
+                style={{ flex: 1, padding: '0.75rem 1rem', borderRadius: '10px', border: '1px solid var(--border)' }}
               />
-              <button type="button" className="secondary" onClick={() => fileInputRef.current?.click()}>
-                📁 Abrir archivo...
-              </button>
-              <input type="file" ref={fileInputRef} onChange={importInput} style={{ display: 'none' }} accept=".xml,.saelabels,.saetikets" />
             </div>
             <div style={{ maxHeight: '400px', overflowY: 'auto', border: '1px solid #e2e8f0', borderRadius: '8px', background: '#fff' }}>
               {documents.filter(d => d.name.toLowerCase().includes(openDocSearch.toLowerCase())).length > 0 ? (
@@ -1292,9 +1626,11 @@ export default function LabelWorkbench() {
             </div>
           </div>
         </div>
+        </Portal>
       )}
       {showResultModal && (
-        <div className="modalBackdrop" onClick={() => setShowResultModal(false)}>
+        <Portal>
+        <div className="modalBackdrop">
           <div className="modalCard" onClick={(e) => e.stopPropagation()}>
             <h3>Resultado actual</h3>
             <pre style={{ maxHeight: "55vh", marginBottom: "0.6rem" }}>{result || "Sin resultado todavia."}</pre>
@@ -1304,6 +1640,7 @@ export default function LabelWorkbench() {
             </div>
           </div>
         </div>
+        </Portal>
       )}
 
       <style>{`
@@ -2139,39 +2476,49 @@ export default function LabelWorkbench() {
         .studioFooter {
           border-top: 1px solid var(--border);
           background: #fff;
-          padding: 0.75rem 1.25rem;
+          padding: 0.5rem 1.25rem;
           display: flex;
           align-items: center;
           justify-content: space-between;
           flex: 0 0 auto;
-          box-shadow: 0 -4px 12px rgba(0,0,0,0.03);
+          height: 28px;
           z-index: 50;
         }
-        .footerMeta {
+        .footerStatus {
           display: flex;
           align-items: center;
-          justify-content: space-between;
-          width: 100%;
+          gap: 0.5rem;
+          color: var(--text);
         }
         .metaStats {
           display: flex;
-          gap: 1.5rem;
-          font-size: 0.85rem;
-          color: var(--muted);
-          font-weight: 500;
+          align-items: center;
+          gap: 1rem;
+          height: 100%;
         }
-        .metaToggle {
+        .metaItem {
           display: flex;
           align-items: center;
-          gap: 0.75rem;
-          color: var(--muted);
-          cursor: pointer;
-        }
-        .metaToggle small {
-          font-weight: 700;
+          gap: 0.4rem;
           font-size: 0.72rem;
+          font-weight: 500;
+        }
+        .metaLabel {
+          color: var(--muted);
+          font-weight: 700;
           text-transform: uppercase;
+          font-size: 0.65rem;
           letter-spacing: 0.02em;
+        }
+        .metaValue {
+          color: var(--text);
+          font-weight: 600;
+        }
+        .metaDivider {
+          width: 1px;
+          height: 12px;
+          background: var(--border);
+          opacity: 0.6;
         }
         .canvasBoard {
           position: relative;
@@ -2380,49 +2727,31 @@ export default function LabelWorkbench() {
           min-width: 180px;
           display: flex;
           flex-direction: column;
-          gap: 0.2rem;
+          gap: 0.35rem;
         }
         .menuField input,
         .menuField select {
-          margin-top: 0.2rem;
-          padding: 0.45rem 0.6rem;
-          font-size: 0.82rem;
+          margin-top: 0;
+          padding: 0.6rem 0.75rem;
+          font-size: 0.85rem;
+          border-radius: 8px;
+          border: 1px solid var(--border);
+          transition: all 0.2s;
+          background: #f8fafc;
+        }
+        .menuField input:focus,
+        .menuField select:focus {
+          outline: none;
+          border-color: var(--accent);
+          background: #fff;
+          box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.1);
         }
         .menuField.grow {
           flex: 1;
           min-width: 260px;
         }
-        .modalBackdrop {
-          position: fixed;
-          inset: 0;
-          background: rgba(15, 23, 42, 0.45);
-          z-index: 1200;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          padding: 1rem;
-        }
-        .modalCard {
-          width: min(560px, 95vw);
-          background: #fff;
-          border: 1px solid var(--border);
-          border-radius: 12px;
-          box-shadow: 0 18px 40px rgba(0,0,0,0.2);
-          padding: 1rem;
-        }
-        .modalCard h3 {
-          margin: 0 0 0.8rem;
-          font-size: 1rem;
-          text-transform: none;
-          letter-spacing: normal;
-          color: var(--text);
-        }
-        .modalActions {
-          display: flex;
-          justify-content: start;
-          gap: 0.5rem;
-          margin-top: 0.5rem;
-        }
+        
+        /* Premium styles now global in Layout.astro */
         .typeChoiceRow {
           display: flex;
           gap: 0.6rem;
@@ -2508,18 +2837,13 @@ export default function LabelWorkbench() {
         }
         .menuSubDropdown {
           position: relative;
+          overflow: visible;
         }
         .menuSubDropdown summary {
           list-style: none;
           display: flex;
           justify-content: space-between;
           align-items: center;
-        }
-        .menuSubDropdown summary::after {
-          content: "›";
-          font-size: 1.2rem;
-          margin-left: 0.5rem;
-          opacity: 0.5;
         }
         .menuSubDropdown summary::-webkit-details-marker {
           display: none;
@@ -3042,8 +3366,97 @@ export default function LabelWorkbench() {
         .footerMeta {
           font-weight: 500;
         }
+
+        /* ═══════════════════════════════════════════════
+           DARK MODE OVERRIDES (all component CSS classes)
+           ═══════════════════════════════════════════════ */
+        [data-theme="dark"] .ruler {
+          background: #0d1525 !important;
+          color: #475569 !important;
+          border-color: #2d3f55 !important;
+        }
+        [data-theme="dark"] .ruler.horizontal { border-bottom-color: #2d3f55 !important; }
+        [data-theme="dark"] .ruler.vertical { border-right-color: #2d3f55 !important; }
+        [data-theme="dark"] .rulerTick { stroke: #334155 !important; }
+        [data-theme="dark"] .rulerTick.major { stroke: #475569 !important; }
+        [data-theme="dark"] .rulerLabel { fill: #475569 !important; }
+
+        /* Canvas / viewport */
+        [data-theme="dark"] .previewViewport { background: #1a2035 !important; }
+        [data-theme="dark"] .previewPanel { background: #0d1525 !important; border-color: #2d3f55 !important; }
+        [data-theme="dark"] .previewLabel { background: #1e293b !important; border-color: #2d3f55 !important; }
+        [data-theme="dark"] .previewObject { color: #e2e8f0 !important; }
+
+        /* Studio footer */
+        [data-theme="dark"] .studioFooter { background: #0d1525 !important; border-color: #2d3f55 !important; }
+
+        /* Layer panel */
+        [data-theme="dark"] .layerItem { background: #162032 !important; border-color: #2d3f55 !important; color: #e2e8f0 !important; }
+        [data-theme="dark"] .layerItem:hover { background: #1e2d42 !important; }
+        [data-theme="dark"] .layerItem.selected { background: #0f2e2b !important; color: var(--accent) !important; }
+        [data-theme="dark"] .layerItem.layerGroup { background: #0d1525 !important; color: #94a3b8 !important; }
+        [data-theme="dark"] .layerItem.layerChild { background: #162032 !important; }
+        [data-theme="dark"] .layersToolbar { background: #0d1525 !important; border-color: #2d3f55 !important; }
+        [data-theme="dark"] .layerIcon { color: #475569 !important; }
+
+        /* Tool buttons (layer toolbar) */
+        [data-theme="dark"] .toolBtn { background: #1e293b !important; border-color: #2d3f55 !important; color: #94a3b8 !important; }
+        [data-theme="dark"] .toolBtn:hover:not(:disabled) { background: #2d3f55 !important; color: var(--accent) !important; }
+        [data-theme="dark"] .toolDivider { background: #2d3f55 !important; }
+
+        /* Inspector panel */
+        [data-theme="dark"] .sectionHeader { color: #64748b !important; border-color: #2d3f55 !important; }
+        [data-theme="dark"] .inspectorFields label { color: #64748b !important; }
+        [data-theme="dark"] .inspectorFields input,
+        [data-theme="dark"] .inspectorFields select,
+        [data-theme="dark"] .inspectorFields textarea { background: #0d1525 !important; border-color: #2d3f55 !important; color: #e2e8f0 !important; }
+        [data-theme="dark"] .colorInput { background: #0d1525 !important; border-color: #2d3f55 !important; }
+        [data-theme="dark"] .colorInput span { color: #94a3b8 !important; }
+
+        /* Context menu */
+        [data-theme="dark"] .contextMenu { background: #162032 !important; border-color: #2d3f55 !important; }
+        [data-theme="dark"] .contextMenu .menuItem:hover { background: #2d3f55 !important; }
+        [data-theme="dark"] .contextMenu .menuItem.danger:hover { background: #450a0a !important; }
+        [data-theme="dark"] .contextMenu .menuLine { background: #2d3f55 !important; }
+
+        /* Dropdowns (scoped hardcoded bg) */
+        [data-theme="dark"] .menuDropdownList,
+        [data-theme="dark"] .menuSubDropdownList { background: #162032 !important; border-color: #2d3f55 !important; }
+        [data-theme="dark"] .menuDropdownItem:hover { background: #2d3f55 !important; }
+        [data-theme="dark"] .menuDropdownItem.active { background: #0f2e2b !important; }
+
+        /* Editor error */
+        [data-theme="dark"] .editorError { background: #2d0a0a !important; border-color: #7f1d1d !important; color: #fca5a5 !important; }
+
+        /* Status */
+        [data-theme="dark"] .status { background: #0f1e38 !important; color: #7dd3fc !important; }
+
+        /* SAE Logo visibility in dark mode */
+        [data-theme="dark"] .studioLogoText {
+          background: linear-gradient(to right, #fff, #cbd5e1) !important;
+          -webkit-background-clip: text !important;
+          -webkit-text-fill-color: transparent !important;
+        }
+
+        /* Improved Grid Dots in dark mode */
+        [data-theme="dark"] .canvasViewport {
+          background: #0f172a !important;
+          background-image: radial-gradient(#475569 1px, transparent 1px) !important;
+          background-size: 20px 20px !important;
+        }
+
+        /* Sidebar resizers visibility */
+        [data-theme="dark"] .sidebarResizer {
+          background: transparent !important;
+        }
+        [data-theme="dark"] .sidebarResizer:hover {
+          background: var(--accent) !important;
+          opacity: 0.3;
+        }
+
       `}</style>
       {propertiesModalOpen && (
+        <Portal>
         <div className="modalBackdrop" onClick={() => setPropertiesModalOpen(false)}>
           <div className="modalCard" onClick={(e) => e.stopPropagation()}>
             <h3 style={{ marginBottom: '1.25rem' }}>Propiedades del Documento</h3>
@@ -3088,9 +3501,11 @@ export default function LabelWorkbench() {
             </div>
           </div>
         </div>
+        </Portal>
       )}
 
       {saveAsModalOpen && (
+        <Portal>
         <div className="modalBackdrop" onClick={() => setSaveAsModalOpen(false)}>
           <div className="modalCard" onClick={(e) => e.stopPropagation()}>
             <h3>Guardar como</h3>
@@ -3106,9 +3521,11 @@ export default function LabelWorkbench() {
             </div>
           </div>
         </div>
+        </Portal>
       )}
 
       {showAboutModal && (
+        <Portal>
         <div className="modalBackdrop" onClick={() => setShowAboutModal(false)}>
           <div className="modalCard" onClick={(e) => e.stopPropagation()} style={{ width: '400px', textAlign: 'center' }}>
             <div style={{ marginBottom: '1.5rem', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
@@ -3136,10 +3553,13 @@ export default function LabelWorkbench() {
             </button>
           </div>
         </div>
+        </Portal>
       )}
 
       {showPrintersManagerModal && (
-        <LogicalPrintersManagerModal apiBaseUrl={apiBaseUrl} onClose={() => setShowPrintersManagerModal(false)} />
+        <Portal>
+          <LogicalPrintersManagerModal apiBaseUrl={apiBaseUrl} onClose={() => setShowPrintersManagerModal(false)} />
+        </Portal>
       )}
     </section>
   );

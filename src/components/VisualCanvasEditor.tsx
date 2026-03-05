@@ -1239,7 +1239,7 @@ export default function VisualCanvasEditor({
     <section className="editorStudio">
       <header className="studioTopbar">
         <div style={{ display: 'flex', gap: '0.5rem', padding: '0 1rem' }}>
-          <button type="button" className="primary" onClick={handleShowPrintModal} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.4rem 0.8rem', fontSize: '0.85rem' }}>
+          <button type="button" className="primary" onClick={handleShowPrintModal} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.5rem 1.25rem', fontSize: '0.85rem' }}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
             Imprimir
           </button>
@@ -1645,7 +1645,7 @@ export default function VisualCanvasEditor({
               <div className="variablesPanel" style={{ padding: '1rem' }}>
                 <h4 style={{ marginTop: 0, marginBottom: '0.5rem', color: 'var(--text)' }}>Variables Mapeables</h4>
                 
-                <div style={{ background: 'var(--primary-light, #e0f2fe)', border: '1px solid var(--primary, #3b82f6)', color: 'var(--primary-dark, #1e40af)', padding: '0.8rem', borderRadius: '8px', marginBottom: '1.5rem', fontSize: '0.8rem', lineHeight: '1.4' }}>
+                <div className="variablesInfoBox" style={{ background: 'var(--primary-light, #e0f2fe)', border: '1px solid var(--primary, #3b82f6)', color: 'var(--primary-dark, #1e40af)', padding: '0.8rem', borderRadius: '8px', marginBottom: '1.5rem', fontSize: '0.8rem', lineHeight: '1.4' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.4rem', fontWeight: 600 }}>
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
                     ¿Cómo insertar variables?
@@ -1661,7 +1661,7 @@ export default function VisualCanvasEditor({
                   {variables.map(v => {
                     const isNumeric = ['integer', 'int', 'decimal', 'float', 'double'].includes(v.type || 'text');
                     return (
-                      <div key={v.name} style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', background: '#ffffff', padding: '0.8rem', borderRadius: '8px', border: '1px solid var(--border)', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+                      <div key={v.name} className="variableCard" style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', background: '#ffffff', padding: '0.8rem', borderRadius: '8px', border: '1px solid var(--border)', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                           <code style={{ fontSize: '0.85rem', color: 'var(--primary)', backgroundColor: 'var(--primary-light, #e0f2fe)', padding: '0.2rem 0.5rem', borderRadius: '4px', cursor: 'pointer', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.3rem', transition: 'all 0.2s' }} 
                             onMouseEnter={e => (e.currentTarget.style.backgroundColor = '#bae6fd')}
