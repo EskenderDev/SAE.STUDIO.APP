@@ -5,15 +5,15 @@ $ErrorActionPreference = "Stop"
 # Use paths relative to the current working directory (repo root) 
 # instead of PSScriptRoot which can be fragile in CI
 $RepoRoot = (Get-Item .).FullName
-$ProjectDir = Join-Path $RepoRoot "..\SAE.STUDIO\src\SAE.STUDIO.Api"
+$ProjectDir = Join-Path $RepoRoot "..\SAE_STUDIO\src\SAE.STUDIO.Api"
 
-# If the SAE.STUDIO folder happens to be alongside SAELABEL.APP in CI, check that.
+# If the SAE_STUDIO folder happens to be alongside SAELABEL.APP in CI, check that.
 # In GitHub Actions, usually the repo is checked out into $GITHUB_WORKSPACE.
 # We must ensure the .NET project actually exists in the CI environment!
 if (-Not (Test-Path $ProjectDir)) {
     Write-Warning "ProjectDir not found: $ProjectDir"
     # Looking inside the current repo as fallback if the folder structure is different
-    $ProjectDiralt = Join-Path $RepoRoot "SAE.STUDIO\src\SAE.STUDIO.Api"
+    $ProjectDiralt = Join-Path $RepoRoot "SAE_STUDIO\src\SAE.STUDIO.Api"
     if (Test-Path $ProjectDiralt) {
         $ProjectDir = $ProjectDiralt
     } else {
@@ -34,7 +34,7 @@ Write-Host "Publishing SAE.STUDIO.Api to $OutputDir"
 dotnet publish "$ProjectDir\SAE.STUDIO.Api.csproj" -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o "$OutputDir"
 
 $ExePath = Join-Path $OutputDir "SAE.STUDIO.Api.exe"
-$TargetName = "server-x86_64-pc-windows-msvc.exe"
+$TargetName = "SAE.STUDIO.Api-x86_64-pc-windows-msvc.exe"
 $TargetPath = Join-Path $OutputDir $TargetName
 
 Write-Host "Renaming the executable to match Tauri sidecar requirements..."
@@ -44,6 +44,15 @@ if (Test-Path $ExePath) {
     Write-Host "Successfully renamed to $TargetName"
 } else {
     throw "Published executable $ExePath was not found!"
+}
+
+# Copy the Schemas directory if it exists in the published output so Tauri can bundle it
+$PublishedSchemas = Join-Path $OutputDir "Schemas"
+if (-Not (Test-Path $PublishedSchemas)) {
+    # If not in output, copy direct from source to output dir
+    $SourceSchemas = Join-Path $ProjectDir "Schemas"
+    Copy-Item -Path $SourceSchemas -Destination $OutputDir -Recurse -Force
+    Write-Host "Copied Schemas directory to $OutputDir"
 }
 
 Write-Host "Server compiled and copied successfully."
