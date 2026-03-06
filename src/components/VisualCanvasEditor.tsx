@@ -1920,7 +1920,8 @@ export default function VisualCanvasEditor({
                             height: "100%", 
                             background: o.fillColor || "transparent", 
                             border: (o.lineWidth ?? 1) > 0 ? `${(o.lineWidth ?? 1) * previewScale}px solid ${o.lineColor || "black"}` : "none", 
-                            borderRadius: o.type === "ellipse" ? "50%" : "0" 
+                            borderRadius: o.type === "ellipse" ? "50%" : "0",
+                            boxSizing: "border-box"
                           }} />
                         )}
                         {o.type === "text" && (
