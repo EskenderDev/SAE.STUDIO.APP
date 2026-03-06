@@ -3317,33 +3317,24 @@ export default function LabelWorkbench() {
         }
         .previewObject {
           position: absolute;
-          border: 1px solid #0f766e;
-          background: rgba(15, 118, 110, 0.06);
+          border: none;
+          background: transparent;
           color: #0f172a;
-          border-radius: 2px;
+          border-radius: 0;
           overflow: hidden;
           text-overflow: ellipsis;
           white-space: nowrap;
-          padding: 1px 2px;
+          padding: 0;
           pointer-events: none;
           transform-origin: center center;
         }
         .previewObject.line {
-          background: transparent;
-          border-top: 1px solid #0f766e;
-          border-right: 0;
-          border-left: 0;
-          border-bottom: 0;
-          padding: 0;
           min-height: 1px;
         }
         .previewObject.image {
-          background: rgba(59, 130, 246, 0.08);
-          border-color: #2563eb;
+          /* specific image styles if needed */
         }
         .previewObject.barcode {
-          background: transparent;
-          border: none;
           color: transparent;
         }
 
