@@ -1,6 +1,6 @@
 {
   "name": "sae-studio-app",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -28,5 +28,10 @@
     "@tauri-apps/cli": "^2.1.0",
     "@types/qrcode": "^1.5.6",
     "typescript": "^5.9.2"
+  },
+  "homepage": "https://studio.saesystem.solutions/",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/EskenderDev/SAE.STUDIO.APP"
   }
 }

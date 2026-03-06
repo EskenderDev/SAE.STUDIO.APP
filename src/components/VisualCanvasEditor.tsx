@@ -442,12 +442,12 @@ export default function VisualCanvasEditor({
   const historyIdxRef = useRef<number>(-1);
   const isUndoingRef = useRef<boolean>(false);
 
-  const pushHistory = useCallback((snapshot: Obj[]) => {
+  const pushHistory = useCallback((nextObjects: Obj[]) => {
     if (isUndoingRef.current) return;
     const h = historyRef.current;
     // Truncate any redo states beyond current index
     h.splice(historyIdxRef.current + 1);
-    h.push(snapshot.map(o => ({ ...o })));
+    h.push(nextObjects.map(o => ({ ...o })));
     if (h.length > 60) h.shift();
     historyIdxRef.current = h.length - 1;
   }, []);
@@ -488,13 +488,22 @@ export default function VisualCanvasEditor({
   const [variables, setVariables] = useState<VariableDef[]>([]);
   const [newVarName, setNewVarName] = useState("");
   const [isPanning, setIsPanning] = useState(false);
+  const isPanningRef = useRef(false);
   const [panState, setPanState] = useState<{ startX: number; startY: number; startScrollLeft: number; startScrollTop: number } | null>(null);
+  const [dynamicResize, setDynamicResize] = useState(false);
   
   // Printing state
   const [showPrintModal, setShowPrintModal] = useState(false);
   const [printForm, setPrintForm] = useState({ printerName: "", copies: 1, isPrinting: false });
   const [showPrintersManagerModal, setShowPrintersManagerModal] = useState(false);
   const [availableLogicalPrinters, setAvailableLogicalPrinters] = useState<LogicalPrinterDto[]>([]);
+  
+  // Auto-expand sidebar on preview
+  useEffect(() => {
+    if (activeRightTab === "preview" && rightSidebarWidth < 450) {
+      setRightSidebarWidth(450);
+    }
+  }, [activeRightTab]);
 
   // Imprimir variables
   const [printTab, setPrintTab] = useState<"manual"|"excel">("manual");
@@ -507,6 +516,8 @@ export default function VisualCanvasEditor({
   const studioBodyRef = useRef<HTMLDivElement | null>(null);
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const draggedElementRef = useRef<EditorElementDefinition | null>(null);
+  // Keep isPanningRef in sync so inline JSX handlers (not in closures) always read current value
+  useEffect(() => { isPanningRef.current = isPanning; }, [isPanning]);
   const resizingSidebarRef = useRef<{
     side: "left" | "right";
     startX: number;
@@ -607,6 +618,13 @@ export default function VisualCanvasEditor({
     if (xml === lastSentXmlRef.current) return;
     
     setObjects(parsed.objects);
+    
+    // Seed history if empty or newly loaded
+    if (historyRef.current.length === 0 || xml !== lastSentXmlRef.current) {
+        historyRef.current = [parsed.objects.map(o => ({ ...o }))];
+        historyIdxRef.current = 0;
+    }
+
     setVariables(parsed.variables || []);
     setTemplateWidthPt(parsed.widthPt);
     setTemplateHeightPt(parsed.heightPt);
@@ -640,15 +658,15 @@ export default function VisualCanvasEditor({
     }
   }, [status]);
 
-  // Push history snapshot when drag starts (captures pre-drag state for undo)
+  // Push history snapshot when drag ends
   const prevDragRef = useRef<DragState | null>(null);
   useEffect(() => {
-    if (drag !== null && prevDragRef.current === null) {
-      // Drag just started — snapshot current objects
+    if (drag === null && prevDragRef.current !== null) {
+      // Drag just ended — push final state
       pushHistory(objects);
     }
     prevDragRef.current = drag;
-  }, [drag]);
+  }, [drag, objects, pushHistory]);
 
   useEffect(() => {
     if (!drag && !activeGuidelineDrag) return;
@@ -747,6 +765,22 @@ export default function VisualCanvasEditor({
     return () => { window.removeEventListener("mousemove", move); window.removeEventListener("mouseup", up); };
   }, [drag, activeGuidelineDrag, zoom, objects, selectedIds, guidelines]);
 
+  // ── Pan tracking (independent from boxSelect) ─────────────────────────────
+  useEffect(() => {
+    if (!panState) return;
+    const move = (ev: MouseEvent) => {
+      if (!viewportRef.current) return;
+      const dx = ev.clientX - panState.startX;
+      const dy = ev.clientY - panState.startY;
+      viewportRef.current.scrollLeft = panState.startScrollLeft - dx;
+      viewportRef.current.scrollTop = panState.startScrollTop - dy;
+    };
+    const up = () => setPanState(null);
+    window.addEventListener("mousemove", move);
+    window.addEventListener("mouseup", up);
+    return () => { window.removeEventListener("mousemove", move); window.removeEventListener("mouseup", up); };
+  }, [panState]);
+
   useEffect(() => {
     if (!boxSelect) return;
     const toPt = (clientX: number, clientY: number) => {
@@ -754,22 +788,9 @@ export default function VisualCanvasEditor({
       return { x: (clientX - r.left) / zoom, y: (clientY - r.top) / zoom };
     };
     const move = (ev: MouseEvent) => {
-      if (panState) {
-        if (!viewportRef.current) return;
-        const dx = ev.clientX - panState.startX;
-        const dy = ev.clientY - panState.startY;
-        viewportRef.current.scrollLeft = panState.startScrollLeft - dx;
-        viewportRef.current.scrollTop = panState.startScrollTop - dy;
-        return;
-      }
       setBoxSelect((prev) => (prev ? { ...prev, currentClientX: ev.clientX, currentClientY: ev.clientY } : prev));
     };
     const up = () => {
-      if (panState) {
-        setIsPanning(false);
-        setPanState(null);
-        return;
-      }
       setBoxSelect((prev) => {
         if (!prev) return null;
         if (Math.abs(prev.currentClientX - prev.startClientX) < 3 && Math.abs(prev.currentClientY - prev.startClientY) < 3) {
@@ -793,7 +814,7 @@ export default function VisualCanvasEditor({
     window.addEventListener("mousemove", move);
     window.addEventListener("mouseup", up);
     return () => { window.removeEventListener("mousemove", move); window.removeEventListener("mouseup", up); };
-  }, [boxSelect, zoom, objects, panState]);
+  }, [boxSelect, zoom, objects]);
 
   useEffect(() => {
     const hide = () => setContextMenu(null);
@@ -805,6 +826,7 @@ export default function VisualCanvasEditor({
     const onKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
       if (target?.tagName === "INPUT" || target?.tagName === "TEXTAREA" || target?.isContentEditable) return;
+      if (event.code === "Space") { event.preventDefault(); setIsPanning(true); window.document.body.style.cursor = "grab"; }
       if (event.key === "Escape") { setSelectedIds([]); setContextMenu(null); }
       if (event.key === "Delete" || event.key === "Backspace") {
         if (selectedIds.length > 0) { event.preventDefault(); deleteObjects(selectedIds); }
@@ -846,10 +868,76 @@ export default function VisualCanvasEditor({
         applyXml();
         setStatus("Cambios guardados manual/visualmente (Ctrl+S).");
       }
+
+      // Group: Ctrl+G
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "g" && !event.shiftKey) {
+        event.preventDefault();
+        groupSelected();
+      }
+      // Ungroup: Ctrl+Shift+G
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "g" && event.shiftKey) {
+        event.preventDefault();
+        ungroupSelected();
+      }
+    };
+    const onKeyUp = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.tagName === "INPUT" || target?.tagName === "TEXTAREA" || target?.isContentEditable) return;
+      if (event.code === "Space") {
+        event.preventDefault();
+        setIsPanning(false);
+        setPanState(null);
+        window.document.body.style.cursor = "";
+      }
     };
     window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+    window.addEventListener("keyup", onKeyUp);
+    return () => { window.removeEventListener("keydown", onKeyDown); window.removeEventListener("keyup", onKeyUp); };
   }, [selectedIds]);
+
+
+  // Sync history with global Edit menu
+  useEffect(() => {
+    const handleUndo = () => {
+      const h = historyRef.current;
+      if (historyIdxRef.current > 0) {
+        historyIdxRef.current--;
+        isUndoingRef.current = true;
+        setObjects(h[historyIdxRef.current].map(o => ({ ...o })));
+        isUndoingRef.current = false;
+        setStatus(`Deshacer (${historyIdxRef.current + 1}/${h.length})`);
+      }
+    };
+    const handleRedo = () => {
+      const h = historyRef.current;
+      if (historyIdxRef.current < h.length - 1) {
+        historyIdxRef.current++;
+        isUndoingRef.current = true;
+        setObjects(h[historyIdxRef.current].map(o => ({ ...o })));
+        isUndoingRef.current = false;
+        setStatus(`Rehacer (${historyIdxRef.current + 1}/${h.length})`);
+      }
+    };
+    window.addEventListener("saelabel:history-undo", handleUndo);
+    window.addEventListener("saelabel:history-redo", handleRedo);
+
+    // Initial sync and sync on object change
+    const syncStatus = () => {
+      const h = historyRef.current;
+      window.dispatchEvent(new CustomEvent("saelabel:history-change", {
+        detail: { 
+          canUndo: historyIdxRef.current > 0, 
+          canRedo: historyIdxRef.current < h.length - 1 
+        }
+      }));
+    };
+    syncStatus();
+
+    return () => {
+      window.removeEventListener("saelabel:history-undo", handleUndo);
+      window.removeEventListener("saelabel:history-redo", handleRedo);
+    };
+  }, [objects]);
 
   useEffect(() => {
     const onMove = (event: MouseEvent) => {
@@ -1084,8 +1172,9 @@ export default function VisualCanvasEditor({
   };
 
   const deleteObjects = (ids: string[]) => {
-    pushHistory(objects);
-    setObjects((prev) => prev.filter((o) => !ids.includes(o.id)));
+    const next = objects.filter((o) => !ids.includes(o.id));
+    setObjects(next);
+    pushHistory(next);
     setSelectedIds([]);
     setContextMenu(null);
   };
@@ -1093,34 +1182,33 @@ export default function VisualCanvasEditor({
   const duplicateObjects = (ids: string[]) => {
     const toCopy = objects.filter((x) => ids.includes(x.id));
     if (toCopy.length === 0) return;
-    pushHistory(objects);
     const copies = toCopy.map((o) => ({ ...o, id: `o-${Date.now()}-${Math.random()}`, x: o.x + 10, y: o.y + 10, xmlIndex: null }));
-    setObjects((prev) => [...prev, ...copies]);
+    const next = [...objects, ...copies];
+    setObjects(next);
+    pushHistory(next);
     setSelectedIds(copies.map((c) => c.id));
     setContextMenu(null);
   };
 
   const bringToFront = (id: string) => {
-    setObjects((prev) => {
-      const idx = prev.findIndex((o) => o.id === id);
-      if (idx === -1) return prev;
-      const copy = [...prev];
-      const [item] = copy.splice(idx, 1);
-      copy.push(item);
-      return copy;
-    });
+    const idx = objects.findIndex((o) => o.id === id);
+    if (idx === -1) return;
+    const next = [...objects];
+    const [item] = next.splice(idx, 1);
+    next.push(item);
+    setObjects(next);
+    pushHistory(next);
     setContextMenu(null);
   };
 
   const sendToBack = (id: string) => {
-    setObjects((prev) => {
-      const idx = prev.findIndex((o) => o.id === id);
-      if (idx === -1) return prev;
-      const copy = [...prev];
-      const [item] = copy.splice(idx, 1);
-      copy.unshift(item);
-      return copy;
-    });
+    const idx = objects.findIndex((o) => o.id === id);
+    if (idx === -1) return;
+    const next = [...objects];
+    const [item] = next.splice(idx, 1);
+    next.unshift(item);
+    setObjects(next);
+    pushHistory(next);
     setContextMenu(null);
   };
 
@@ -1146,44 +1234,48 @@ export default function VisualCanvasEditor({
   const groupSelected = () => {
     if (selectedIds.length < 2) return;
     const groupId = `g-${crypto.randomUUID()}`;
-    setObjects((prev) => prev.map((o) => (selectedIds.includes(o.id) ? { ...o, groupId } : o)));
+    const next = objects.map((o) => (selectedIds.includes(o.id) ? { ...o, groupId } : o));
+    setObjects(next);
+    pushHistory(next);
     setContextMenu(null);
   };
 
   const ungroupSelected = () => {
     const ids = new Set(objects.filter((o) => selectedIds.includes(o.id) && o.groupId).map((o) => o.groupId!));
-    setObjects((prev) => prev.map((o) => (o.groupId && ids.has(o.groupId) ? { ...o, groupId: undefined } : o)));
+    const next = objects.map((o) => (o.groupId && ids.has(o.groupId) ? { ...o, groupId: undefined } : o));
+    setObjects(next);
+    pushHistory(next);
     setContextMenu(null);
   };
 
   const moveLayer = (token: string, dir: "up" | "down" | "top" | "bottom") => {
-    setObjects((prev) => {
-      const ids = token.startsWith("group:") ? prev.filter((o) => o.groupId === token.slice(6)).map((o) => o.id) : [token];
-      if (ids.length === 0) return prev;
-      const idx = prev.findIndex((o) => o.id === ids[0]);
-      if (idx < 0) return prev;
-      const block = prev.filter((o) => ids.includes(o.id));
-      const rest = prev.filter((o) => !ids.includes(o.id));
-      if (dir === "up") rest.splice(Math.min(rest.length, idx + 1), 0, ...block);
-      else if (dir === "down") rest.splice(Math.max(0, idx - 1), 0, ...block);
-      else if (dir === "top") rest.push(...block);
-      else if (dir === "bottom") rest.unshift(...block);
-      return rest;
-    });
+    const ids = token.startsWith("group:") ? objects.filter((o) => o.groupId === token.slice(6)).map((o) => o.id) : [token];
+    if (ids.length === 0) return;
+    const idx = objects.findIndex((o) => o.id === ids[0]);
+    if (idx < 0) return;
+    const block = objects.filter((o) => ids.includes(o.id));
+    const rest = objects.filter((o) => !ids.includes(o.id));
+    if (dir === "up") rest.splice(Math.min(rest.length, idx + 1), 0, ...block);
+    else if (dir === "down") rest.splice(Math.max(0, idx - 1), 0, ...block);
+    else if (dir === "top") rest.push(...block);
+    else if (dir === "bottom") rest.unshift(...block);
+    
+    setObjects(rest);
+    pushHistory(rest);
   };
 
   const reorderByLayerDrop = (dragToken: string, targetToken: string) => {
-    setObjects((prev) => {
-      const dIds = dragToken.startsWith("group:") ? prev.filter((o) => o.groupId === dragToken.slice(6)).map((o) => o.id) : [dragToken];
-      const tIds = targetToken.startsWith("group:") ? prev.filter((o) => o.groupId === targetToken.slice(6)).map((o) => o.id) : [targetToken];
-      if (dIds.some(id => tIds.includes(id))) return prev;
-      const block = prev.filter((o) => dIds.includes(o.id));
-      const rest = prev.filter((o) => !dIds.includes(o.id));
-      const idx = rest.findIndex((o) => o.id === tIds[0]);
-      if (idx < 0) return prev;
-      rest.splice(idx, 0, ...block);
-      return rest;
-    });
+    const dIds = dragToken.startsWith("group:") ? objects.filter((o) => o.groupId === dragToken.slice(6)).map((o) => o.id) : [dragToken];
+    const tIds = targetToken.startsWith("group:") ? objects.filter((o) => o.groupId === targetToken.slice(6)).map((o) => o.id) : [targetToken];
+    if (dIds.some(id => tIds.includes(id))) return;
+    const block = objects.filter((o) => dIds.includes(o.id));
+    const rest = objects.filter((o) => !dIds.includes(o.id));
+    const idx = rest.findIndex((o) => o.id === tIds[0]);
+    if (idx < 0) return;
+    rest.splice(idx, 0, ...block);
+    
+    setObjects(rest);
+    pushHistory(rest);
   };
 
   const saveElement = async () => {
@@ -1237,7 +1329,7 @@ export default function VisualCanvasEditor({
     }
     return nodes;
   })();
-  const previewScale = Math.max(0.1, Math.min(240 / Math.max(1, templateWidthPt), 160 / Math.max(1, templateHeightPt)));
+  const previewScale = Math.max(0.1, Math.min((rightSidebarWidth - 60) / Math.max(1, templateWidthPt), 220 / Math.max(1, templateHeightPt)));
 
   return (
     <section className="editorStudio">
@@ -1264,14 +1356,32 @@ export default function VisualCanvasEditor({
             <label className="zoomLabel sizeLabel">
               <span className="sizeAxis">W</span>
               <span className="unitInput">
-                <input type="number" title={`Ancho (${templateUnit})`} value={Number(toUnit(templateWidthPt, templateUnit).toFixed(3))} step={unitStep(templateUnit)} onChange={(e) => setTemplateWidthPt(Math.max(1, fromUnit(Number(e.target.value), templateUnit)))} />
+                <input type="number" title={`Ancho (${templateUnit})`} value={Number(toUnit(templateWidthPt, templateUnit).toFixed(3))} step={unitStep(templateUnit)} onChange={(e) => {
+                  const newPt = Math.max(1, fromUnit(Number(e.target.value), templateUnit));
+                  if (dynamicResize && templateWidthPt > 0) {
+                    const ratio = newPt / templateWidthPt;
+                    const next = objects.map(o => ({ ...o, x: o.x * ratio, y: o.y * ratio, w: o.w * ratio, h: o.h * ratio, fontSize: o.fontSize ? o.fontSize * ratio : o.fontSize, lineWidth: o.lineWidth ? o.lineWidth * ratio : o.lineWidth }));
+                    setObjects(next);
+                    pushHistory(next);
+                  }
+                  setTemplateWidthPt(newPt);
+                }} />
                 <small>{templateUnit}</small>
               </span>
             </label>
             <label className="zoomLabel sizeLabel">
               <span className="sizeAxis">H</span>
               <span className="unitInput">
-                <input type="number" title={`Alto (${templateUnit})`} value={Number(toUnit(templateHeightPt, templateUnit).toFixed(3))} step={unitStep(templateUnit)} onChange={(e) => setTemplateHeightPt(Math.max(1, fromUnit(Number(e.target.value), templateUnit)))} />
+                <input type="number" title={`Alto (${templateUnit})`} value={Number(toUnit(templateHeightPt, templateUnit).toFixed(3))} step={unitStep(templateUnit)} onChange={(e) => {
+                  const newPt = Math.max(1, fromUnit(Number(e.target.value), templateUnit));
+                  if (dynamicResize && templateHeightPt > 0) {
+                    const ratio = newPt / templateHeightPt;
+                    const next = objects.map(o => ({ ...o, x: o.x * ratio, y: o.y * ratio, w: o.w * ratio, h: o.h * ratio, fontSize: o.fontSize ? o.fontSize * ratio : o.fontSize, lineWidth: o.lineWidth ? o.lineWidth * ratio : o.lineWidth }));
+                    setObjects(next);
+                    pushHistory(next);
+                  }
+                  setTemplateHeightPt(newPt);
+                }} />
                 <small>{templateUnit}</small>
               </span>
             </label>
@@ -1281,6 +1391,15 @@ export default function VisualCanvasEditor({
               <option value="in">in</option>
               <option value="pt">pt</option>
             </select>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginLeft: '4px', height: '2rem' }} title="Escalar objetos proporcionalmente al cambiar de tamaño">
+              <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--muted)', whiteSpace: 'nowrap', lineHeight: 1 }}>Proporcional</span>
+              <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                <input type="checkbox" className="toggleInput" id="chk-dyn-resize" checked={dynamicResize} onChange={e => setDynamicResize(e.target.checked)} />
+                <label htmlFor="chk-dyn-resize" className="toggleTrack" data-checked={dynamicResize} style={{ margin: 0 }}>
+                  <div className="toggleThumb"></div>
+                </label>
+              </div>
+            </div>
           </div>
           <div className="toolbarDivider" />
           <button
@@ -1389,16 +1508,16 @@ export default function VisualCanvasEditor({
             <div className="rulerCorner" />
             <Ruler orientation="horizontal" lengthPt={templateWidthPt} zoom={zoom} unit={templateUnit} offsetPt={rulerOffsets.x} onStartGuideline={(e) => startGuideline("horizontal", e)} guidelines={guidelines} />
             <Ruler orientation="vertical" lengthPt={templateHeightPt} zoom={zoom} unit={templateUnit} offsetPt={rulerOffsets.y} onStartGuideline={(e) => startGuideline("vertical", e)} guidelines={guidelines} />
-            <div ref={viewportRef} className="canvasViewport" style={{ cursor: isPanning ? 'grabbing' : 'auto' }} onContextMenu={(e) => { e.preventDefault(); handleContextMenu(e, "canvas"); }} onMouseDown={(e) => { if (e.button === 1 || (e.button === 0 && e.shiftKey)) { e.preventDefault(); setIsPanning(true); setPanState({ startX: e.clientX, startY: e.clientY, startScrollLeft: e.currentTarget.scrollLeft, startScrollTop: e.currentTarget.scrollTop }); return; } if (e.target === e.currentTarget && e.button === 0) { setContextMenu(null); setBoxSelect({ startClientX: e.clientX, startClientY: e.clientY, currentClientX: e.clientX, currentClientY: e.clientY }); } }} onDragOver={(e) => { e.preventDefault(); setIsBoardDragOver(true); e.dataTransfer.dropEffect = "copy"; }} onDragLeave={() => setIsBoardDragOver(false)} onDrop={(e) => { e.preventDefault(); setIsBoardDragOver(false); const raw = e.dataTransfer.getData("application/saelabel-element"); const el = raw ? JSON.parse(raw) : draggedElementRef.current; resetDragState(); if (!el || !boardRef.current) return; const br = boardRef.current.getBoundingClientRect(); const x = (e.clientX - br.left) / zoom; const y = (e.clientY - br.top) / zoom; setObjects(p => [...p, { id: `new-${crypto.randomUUID()}`, xmlIndex: null, type: el.objectType, x, y, w: el.defaultWidthPt, h: el.defaultHeightPt, content: el.defaultContent || "", rotateDeg: 0, scaleX: 1, scaleY: 1, skewX: 0, skewY: 0, fillColor: undefined, lineColor: "#000000", lineWidth: 1 }]); }}>
+            <div ref={viewportRef} className="canvasViewport" style={{ cursor: isPanning ? (panState ? 'grabbing' : 'grab') : 'auto' }} onContextMenu={(e) => { e.preventDefault(); if (!isPanningRef.current) handleContextMenu(e, "canvas"); }} onMouseDown={(e) => { if (e.button === 1 || isPanningRef.current) { e.preventDefault(); setPanState({ startX: e.clientX, startY: e.clientY, startScrollLeft: e.currentTarget.scrollLeft, startScrollTop: e.currentTarget.scrollTop }); return; } if (e.target === e.currentTarget && e.button === 0) { setContextMenu(null); setBoxSelect({ startClientX: e.clientX, startClientY: e.clientY, currentClientX: e.clientX, currentClientY: e.clientY }); } }} onDragOver={(e) => { e.preventDefault(); setIsBoardDragOver(true); e.dataTransfer.dropEffect = "copy"; }} onDragLeave={() => setIsBoardDragOver(false)} onDrop={(e) => { e.preventDefault(); setIsBoardDragOver(false); const raw = e.dataTransfer.getData("application/saelabel-element"); const el = raw ? JSON.parse(raw) : draggedElementRef.current; resetDragState(); if (!el || !boardRef.current) return; const br = boardRef.current.getBoundingClientRect(); const x = (e.clientX - br.left) / zoom; const y = (e.clientY - br.top) / zoom; setObjects(p => [...p, { id: `new-${crypto.randomUUID()}`, xmlIndex: null, type: el.objectType, x, y, w: el.defaultWidthPt, h: el.defaultHeightPt, content: el.defaultContent || "", rotateDeg: 0, scaleX: 1, scaleY: 1, skewX: 0, skewY: 0, fillColor: undefined, lineColor: "#000000", lineWidth: 1 }]); }}>
               {guidelines.map(g => (
                 <div key={g.id} className={`guideline ${g.orientation}`} style={{ [g.orientation === "horizontal" ? "top" : "left"]: (g.posPt + (g.orientation === "horizontal" ? rulerOffsets.y : rulerOffsets.x)) * zoom + 24 }} onMouseDown={(e) => { e.stopPropagation(); setActiveGuidelineDrag({ id: g.id, startPosPt: g.posPt }); }} />
               ))}
               {boxSelect && viewportRef.current && (
                 <div className={`selectionRect ${boxSelect.currentClientX >= boxSelect.startClientX ? "touch" : "contain"}`} style={{ left: Math.min(boxSelect.startClientX, boxSelect.currentClientX) - viewportRef.current.getBoundingClientRect().left, top: Math.min(boxSelect.startClientY, boxSelect.currentClientY) - viewportRef.current.getBoundingClientRect().top, width: Math.abs(boxSelect.currentClientX - boxSelect.startClientX), height: Math.abs(boxSelect.currentClientY - boxSelect.startClientY) }} />
               )}
-              <div ref={boardRef} className={`canvasBoard ${isBoardDragOver ? "dragOver" : ""} ${activeTransformKind ? `transform-${activeTransformKind}` : ""}`} style={{ width: templateWidthPt * zoom, height: templateHeightPt * zoom }} onMouseDown={(e) => { if (e.target === e.currentTarget) { setContextMenu(null); setBoxSelect({ startClientX: e.clientX, startClientY: e.clientY, currentClientX: e.clientX, currentClientY: e.clientY }); } }}>
+              <div ref={boardRef} className={`canvasBoard ${isBoardDragOver ? "dragOver" : ""} ${activeTransformKind ? `transform-${activeTransformKind}` : ""}`} style={{ width: templateWidthPt * zoom, height: templateHeightPt * zoom }} onMouseDown={(e) => { if (isPanningRef.current) return; if (e.target === e.currentTarget) { setContextMenu(null); setBoxSelect({ startClientX: e.clientX, startClientY: e.clientY, currentClientX: e.clientX, currentClientY: e.clientY }); } }}>
                 {objects.map((o) => (
-                  <button key={o.id} type="button" className={`canvasObject ${o.type} ${selectedIds.includes(o.id) ? "selected" : ""}`} style={{ left: o.x * zoom, top: o.y * zoom, width: o.w * zoom, height: o.h * zoom, transform: `rotate(${o.rotateDeg}deg) skew(${o.skewX}deg, ${o.skewY}deg) scale(${o.scaleX}, ${o.scaleY})` }} onMouseDown={(e) => { e.stopPropagation(); const ids = objects.find(x => x.id === o.id)?.groupId ? objects.filter(x => x.groupId === objects.find(x => x.id === o.id)?.groupId).map(x => x.id) : selectedIds.includes(o.id) ? selectedIds : [o.id]; setDrag({ mode: "move", id: o.id, startX: e.clientX, startY: e.clientY, x: o.x, y: o.y, w: o.w, h: o.h, originMap: ids.reduce((a, id) => { const f = objects.find(x => x.id === id); if (f) a[id] = { x: f.x, y: f.y }; return a; }, {} as any) }); }} onContextMenu={(e) => handleContextMenu(e, o.id)} onClick={(e) => { e.stopPropagation(); if (e.ctrlKey) setSelectedIds(p => p.includes(o.id) ? p.filter(id => id !== o.id) : [...p, o.id]); else setSelectedIds([o.id]); }} onDoubleClick={() => setTransformModeIds(p => p.includes(o.id) ? p.filter(x => x !== o.id) : [...p, o.id])}>
+                  <button key={o.id} type="button" className={`canvasObject ${o.type} ${selectedIds.includes(o.id) ? "selected" : ""}`} style={{ left: o.x * zoom, top: o.y * zoom, width: o.w * zoom, height: o.h * zoom, transform: `rotate(${o.rotateDeg}deg) skew(${o.skewX}deg, ${o.skewY}deg) scale(${o.scaleX}, ${o.scaleY})`, pointerEvents: isPanning ? 'none' : 'auto' }} onMouseDown={(e) => { if (isPanningRef.current) return; e.stopPropagation(); const ids = objects.find(x => x.id === o.id)?.groupId ? objects.filter(x => x.groupId === objects.find(x => x.id === o.id)?.groupId).map(x => x.id) : selectedIds.includes(o.id) ? selectedIds : [o.id]; setDrag({ mode: "move", id: o.id, startX: e.clientX, startY: e.clientY, x: o.x, y: o.y, w: o.w, h: o.h, originMap: ids.reduce((a, id) => { const f = objects.find(x => x.id === id); if (f) a[id] = { x: f.x, y: f.y }; return a; }, {} as any) }); }} onContextMenu={(e) => { if (isPanningRef.current) return; handleContextMenu(e, o.id); }} onClick={(e) => { if (isPanningRef.current) return; e.stopPropagation(); if (e.ctrlKey) setSelectedIds(p => p.includes(o.id) ? p.filter(id => id !== o.id) : [...p, o.id]); else setSelectedIds([o.id]); }} onDoubleClick={() => { if (isPanningRef.current) return; setTransformModeIds(p => p.includes(o.id) ? p.filter(x => x !== o.id) : [...p, o.id]); }}>
                     {/* Only show type label for non-visual types that have no content renderer */}
                     {o.type === "image" ? (
                       o.content ? <img src={o.content} alt="" style={{ width: "100%", height: "100%", objectFit: "contain", pointerEvents: "none" }} /> : <div className="imgPlaceholder">Imagen</div>
@@ -1859,37 +1978,43 @@ export default function VisualCanvasEditor({
       </div>
       {contextMenu && (
         <div className="contextMenu" style={{ left: contextMenu.x, top: contextMenu.y }}>
-          {contextMenu.id && contextMenu.id !== "canvas" ? (
+          {selectedIds.length > 0 ? (
             <>
-              <div className="menuItem" onClick={() => { setActiveRightTab("properties"); setContextMenu(null); }}>Propiedades</div>
-              <div className="menuLine" />
-              <div className="menuItem" onClick={() => moveLayer(contextMenu.id!, "up")}>Subir capa</div>
-              <div className="menuItem" onClick={() => moveLayer(contextMenu.id!, "down")}>Bajar capa</div>
-              <div className="menuItem" onClick={() => bringToFront(contextMenu.id!)}>Traer al frente</div>
-              <div className="menuItem" onClick={() => sendToBack(contextMenu.id!)}>Enviar al fondo</div>
-              <div className="menuLine" />
-              <div className="menuItem" onClick={() => duplicateObjects(selectedIds)}>Duplicar</div>
-              {selectedIds.length > 1 && <div className="menuItem" onClick={() => groupSelected()}>Agrupar</div>}
-              {objects.some(o => selectedIds.includes(o.id) && o.groupId) && <div className="menuItem" onClick={() => ungroupSelected()}>Desagrupar</div>}
-              <div className="menuLine" />
-              <div className="menuItem danger" onClick={() => deleteObjects(selectedIds)}>Eliminar</div>
-            </>
-          ) : (
-            <>
-              {selectedIds.length > 0 && (
+              {contextMenu.id && contextMenu.id !== "canvas" && (
                 <>
-                  <div className="menuItem" onClick={() => { setActiveRightTab("properties"); setContextMenu(null); }}>Propiedades ({selectedIds.length})</div>
-                  <div className="menuLine" />
-                  <div className="menuItem" onClick={() => duplicateObjects(selectedIds)}>Duplicar seleccionados</div>
-                  {selectedIds.length > 1 && <div className="menuItem" onClick={() => groupSelected()}>Agrupar</div>}
-                  {objects.some(o => selectedIds.includes(o.id) && o.groupId) && <div className="menuItem" onClick={() => ungroupSelected()}>Desagrupar</div>}
-                  <div className="menuLine" />
-                  <div className="menuItem danger" onClick={() => deleteObjects(selectedIds)}>Eliminar seleccionados</div>
+                  <div className="menuItem" onClick={() => { setActiveRightTab("properties"); setContextMenu(null); }}>Propiedades</div>
                   <div className="menuLine" />
                 </>
               )}
-              <div className="menuItem" onClick={() => { setSelectedIds([]); setContextMenu(null); }}>Limpiar seleccion</div>
+              
+              <div className="menuItem" onClick={() => moveLayer(contextMenu.id || selectedIds[0], "top")}>Traer al frente</div>
+              <div className="menuItem" onClick={() => moveLayer(contextMenu.id || selectedIds[0], "up")}>Traer adelante</div>
+              <div className="menuItem" onClick={() => moveLayer(contextMenu.id || selectedIds[0], "down")}>Enviar atrás</div>
+              <div className="menuItem" onClick={() => moveLayer(contextMenu.id || selectedIds[0], "bottom")}>Enviar al fondo</div>
+              
+              <div className="menuLine" />
+              
+              <div className="menuItem" onClick={() => duplicateObjects(selectedIds)}>Duplicar seleccionados</div>
+              
+              {selectedIds.length > 1 && (
+                <div className="menuItem" onClick={() => { groupSelected(); setContextMenu(null); }}>
+                  Agrupar <span style={{ marginLeft: 'auto', opacity: 0.5, fontSize: '0.75rem', paddingLeft: '1.5rem' }}>Ctrl+G</span>
+                </div>
+              )}
+              
+              {objects.some(o => selectedIds.includes(o.id) && o.groupId) && (
+                <div className="menuItem" onClick={() => { ungroupSelected(); setContextMenu(null); }}>
+                  Desagrupar <span style={{ marginLeft: 'auto', opacity: 0.5, fontSize: '0.75rem', paddingLeft: '1.5rem' }}>Ctrl+Shift+G</span>
+                </div>
+              )}
+              
+              <div className="menuLine" />
+              <div className="menuItem danger" onClick={() => deleteObjects(selectedIds)}>Eliminar seleccionados</div>
+              <div className="menuLine" />
+              <div className="menuItem" onClick={() => { setSelectedIds([]); setContextMenu(null); }}>Limpiar selección</div>
             </>
+          ) : (
+            <div className="menuItem" style={{ opacity: 0.5, cursor: 'default' }}>Sin elementos seleccionados</div>
           )}
         </div>
       )}

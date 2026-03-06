@@ -314,7 +314,7 @@ function BlockPreviewItem({ block, cols }: { block: Block; cols: number }) {
     case "qr": {
       const sz = Math.min(block.qrSize, 120);
       const align = block.align==="center"?"center":block.align==="right"?"flex-end":"flex-start";
-      return <div style={{ display:"flex", justifyContent:align, padding:"4px 0" }}><QrImage content={block.content} size={sz} /></div>;
+      return <div style={{ display:"flex", justifyContent:align, padding:"4px 0", width:"100%" }}><QrImage content={block.content} size={sz} /></div>;
     }
     case "feed": return <><br/>{block.lines>1&&<br/>}</>;
     case "cut":  return <span style={PREVIEW_ROW}>{"─".repeat(cols)+" ✂"}</span>;
@@ -388,8 +388,8 @@ function BlockPreviewItem({ block, cols }: { block: Block; cols: number }) {
 function TicketPreview({ blocks, cols }: { blocks: Block[]; cols: number }) {
   return (
     <div className="ticketPreviewArea" style={{ fontFamily:"'Courier New',Courier,monospace", fontSize:"0.78rem", background:"#fff", color:"#111",
-      padding:"1rem 1.1rem", borderRadius:3, whiteSpace:"pre-wrap", lineHeight:1.55, width:`${cols}ch`, maxWidth:`${cols}ch`, boxSizing: "content-box",
-      display:"inline-block", boxShadow:"0 2px 12px rgba(0,0,0,0.14),0 1px 3px rgba(0,0,0,0.07)", overflow: "hidden", overflowWrap: "anywhere" }}>
+      padding:"1.5rem 1.1rem", borderRadius:3, whiteSpace:"pre-wrap", lineHeight:1.55, width:`${cols}ch`, maxWidth:`${cols}ch`, boxSizing: "content-box",
+      display:"inline-block", boxShadow:"0 2px 12px rgba(0,0,0,0.14),0 1px 3px rgba(0,0,0,0.07)", overflow: "visible", overflowWrap: "anywhere" }}>
       {blocks.length === 0
         ? <span style={{ color:"#aaa" }}>(tiquete vacío)</span>
         : blocks.map(b => <BlockPreviewItem key={b.id} block={b} cols={cols} />)
@@ -801,9 +801,11 @@ export default function TicketDesigner({ initialXml, onUpdate, apiBaseUrl }: Tic
   const [printTab, setPrintTab]             = useState<"manual" | "batch">("manual");
   const [availableLogicalPrinters, setAvailableLogicalPrinters] = useState<LogicalPrinterDto[]>([]);
 
-  // History States
-  const [history, setHistory]     = useState<Block[][]>([]);
-  const [redoStack, setRedoStack] = useState<Block[][]>([]);
+  // History and Undo/Redo Refs
+  const historyRef = useRef<Block[][]>([]);
+  const historyIdxRef = useRef(-1);
+  const isUndoingRef = useRef(false);
+
   const [isPrinterSelectorOpen, setIsPrinterSelectorOpen] = useState(false);
   const [printerSearch, setPrinterSearch] = useState("");
 
@@ -818,30 +820,42 @@ export default function TicketDesigner({ initialXml, onUpdate, apiBaseUrl }: Tic
   }, [blocks]);
 
   // ─── Callbacks ──────────────────────────────────────────────────────────────
-  const pushHistory = useCallback((current: Block[]) => {
-    setHistory(h => {
-      const next = [...h, current];
-      if (next.length > 30) return next.slice(1);
-      return next;
-    });
-    setRedoStack([]);
+  const pushHistory = useCallback((nextBlocks: Block[]) => {
+    if (isUndoingRef.current) return;
+    const h = historyRef.current;
+    const idx = historyIdxRef.current;
+    
+    // Truncate redo history and push the NEW state
+    const newHistory = h.slice(0, idx + 1);
+    newHistory.push(nextBlocks.map(b => ({ ...b }))); // Store a copy
+    
+    if (newHistory.length > 50) newHistory.shift();
+    
+    historyRef.current = newHistory;
+    historyIdxRef.current = newHistory.length - 1;
   }, []);
 
   const undo = useCallback(() => {
-    if (history.length === 0) return;
-    const prev = history[history.length - 1];
-    setRedoStack(r => [blocks, ...r]);
-    setHistory(h => h.slice(0, h.length - 1));
-    setBlocks(prev);
-  }, [blocks, history]);
+    const h = historyRef.current;
+    if (historyIdxRef.current > 0) {
+      // If we are at the latest and have changes not in history, push them?
+      // For now, standard undo:
+      historyIdxRef.current--;
+      isUndoingRef.current = true;
+      setBlocks(h[historyIdxRef.current].map(b => ({ ...b })));
+      isUndoingRef.current = false;
+    }
+  }, []);
 
   const redo = useCallback(() => {
-    if (redoStack.length === 0) return;
-    const next = redoStack[0];
-    setHistory(h => [...h, blocks]);
-    setRedoStack(r => r.slice(1));
-    setBlocks(next);
-  }, [blocks, redoStack]);
+    const h = historyRef.current;
+    if (historyIdxRef.current < h.length - 1) {
+      historyIdxRef.current++;
+      isUndoingRef.current = true;
+      setBlocks(h[historyIdxRef.current].map(b => ({ ...b })));
+      isUndoingRef.current = false;
+    }
+  }, []);
 
   const handlePrint = useCallback(() => {
     const initialData: Record<string, string> = {};
@@ -863,8 +877,11 @@ export default function TicketDesigner({ initialXml, onUpdate, apiBaseUrl }: Tic
         setBlocks(init.blocks);
         setWidth(init.width);
         setPrinters(init.printers);
-        setRedoStack([]);
-        setHistory([]);
+        
+        // Initialize history with the fresh data
+        historyRef.current = [init.blocks.map(b => ({ ...b }))];
+        historyIdxRef.current = 0;
+        
         lastIncomingXml.current = initialXml || "";
       }
     }
@@ -895,6 +912,10 @@ export default function TicketDesigner({ initialXml, onUpdate, apiBaseUrl }: Tic
     };
     window.addEventListener("keydown", handleKey);
     
+    // Listen for manual menu triggers
+    window.addEventListener("saelabel:history-undo", undo);
+    window.addEventListener("saelabel:history-redo", redo);
+    
     const handleTriggerPrint = () => {
       console.log("TicketDesigner: ticket-trigger-print received");
       handlePrint();
@@ -903,9 +924,22 @@ export default function TicketDesigner({ initialXml, onUpdate, apiBaseUrl }: Tic
 
     return () => {
       window.removeEventListener("keydown", handleKey);
+      window.removeEventListener("saelabel:history-undo", undo);
+      window.removeEventListener("saelabel:history-redo", redo);
       window.removeEventListener("ticket-trigger-print", handleTriggerPrint);
     };
   }, [undo, redo, handlePrint]);
+
+  // Notify parent about history status (canUndo/canRedo)
+  useEffect(() => {
+    const h = historyRef.current;
+    window.dispatchEvent(new CustomEvent("saelabel:history-change", {
+      detail: { 
+        canUndo: historyIdxRef.current > 0, 
+        canRedo: historyIdxRef.current < h.length - 1 
+      }
+    }));
+  }, [blocks]);
 
   const executePrint = async () => {
     if (!printers) { alert("Selecciona al menos una impresora"); return; }
@@ -985,28 +1019,34 @@ export default function TicketDesigner({ initialXml, onUpdate, apiBaseUrl }: Tic
   };
 
   const addBlock = useCallback((factory: ()=>Block) => {
-    pushHistory(blocks);
     const nb = factory();
-    setBlocks(p => [...p, nb]);
+    const next = [...blocks, nb];
+    setBlocks(next);
+    pushHistory(next);
     setSelectedId(nb.id);
   }, [blocks, pushHistory]);
 
   const updateBlock = useCallback((updated: Block) => {
-    pushHistory(blocks);
-    setBlocks(p => p.map(b => b.id === updated.id ? updated : b));
+    const next = blocks.map(b => b.id === updated.id ? updated : b);
+    setBlocks(next);
+    pushHistory(next);
   }, [blocks, pushHistory]);
 
   const move = (id: string, d: -1|1) => {
-    pushHistory(blocks);
     setBlocks(p => {
       const idx = p.findIndex(b=>b.id===id), ni = idx+d;
       if (ni < 0 || ni >= p.length) return p;
-      const a = [...p]; [a[idx],a[ni]] = [a[ni],a[idx]]; return a;
+      const next = [...p]; 
+      [next[idx], next[ni]] = [next[ni], next[idx]]; 
+      pushHistory(next);
+      return next;
     });
   };
+
   const del = (id: string) => { 
-    pushHistory(blocks);
-    setBlocks(p=>p.filter(b=>b.id!==id)); 
+    const next = blocks.filter(b=>b.id!==id);
+    setBlocks(next); 
+    pushHistory(next);
     setSelectedId(null); 
   };
 
@@ -1016,15 +1056,14 @@ export default function TicketDesigner({ initialXml, onUpdate, apiBaseUrl }: Tic
 
   const handleDrop = (targetId: string) => {
     if (!draggedId || draggedId === targetId) return;
-    pushHistory(blocks);
-    setBlocks(p => {
-      const draggedIdx = p.findIndex(b => b.id === draggedId);
-      const targetIdx  = p.findIndex(b => b.id === targetId);
-      const newBlocks = [...p];
-      const [draggedItem] = newBlocks.splice(draggedIdx, 1);
-      newBlocks.splice(targetIdx, 0, draggedItem);
-      return newBlocks;
-    });
+    const draggedIdx = blocks.findIndex(b => b.id === draggedId);
+    const targetIdx  = blocks.findIndex(b => b.id === targetId);
+    const next = [...blocks];
+    const [draggedItem] = next.splice(draggedIdx, 1);
+    next.splice(targetIdx, 0, draggedItem);
+    
+    setBlocks(next);
+    pushHistory(next);
     setDraggedId(null);
   };
 
@@ -1304,7 +1343,7 @@ export default function TicketDesigner({ initialXml, onUpdate, apiBaseUrl }: Tic
 
       <div style={{ flex:1, display:"grid", gridTemplateColumns:"160px 220px 1fr 380px", overflow:"hidden" }}>
         {/* 1. Palette */}
-        <aside className="ticketPalette" style={{ background:panelBg, borderRight:div, overflow:"auto", padding:"0.6rem 0.5rem" }}>
+        <aside className="ticketPalette" style={{ background:panelBg, borderRight:div, overflow:"auto", padding:"0.6rem 0.5rem 8rem 0.5rem" }}>
           {cats.map(cat => (
             <div key={cat} style={{ marginBottom:"0.8rem" }}>
               <p style={{ fontSize:"0.63rem", fontWeight:700, letterSpacing:"0.08em", textTransform:"uppercase", color:CAT_COLOR[cat]??"#64748b", margin:"0 0 0.3rem", paddingLeft:2 }}>{cat}</p>
@@ -1313,10 +1352,11 @@ export default function TicketDesigner({ initialXml, onUpdate, apiBaseUrl }: Tic
               ))}
             </div>
           ))}
+          <div style={{ height: "10rem" }} />
         </aside>
 
         {/* 2. Structure */}
-        <aside className="ticketStructure" style={{ background:"#f8fafc", borderRight:div, overflow:"auto", padding:"0.6rem 0.6rem" }}>
+        <aside className="ticketStructure" style={{ background:"#f8fafc", borderRight:div, overflow:"auto", padding:"0.6rem 0.6rem 4rem 0.6rem" }}>
           <SH c={`Estructura (${blocks.length})`} />
           {blocks.length === 0 && (
             <div style={{ padding:"1.2rem", textAlign:"center", color:"var(--muted,#64748b)", fontSize:"0.72rem", background:"#fff", borderRadius:6, border:"1px dashed var(--border,#cbd5e1)" }}>
@@ -1332,15 +1372,32 @@ export default function TicketDesigner({ initialXml, onUpdate, apiBaseUrl }: Tic
               onDrop={() => handleDrop(b.id)}
             />
           ))}
+          <div style={{ height: "10rem" }} />
         </aside>
 
         {/* 3. Preview */}
-        <main className="ticketCanvasArea" style={{ flex:1, overflow:"auto", padding:"1.5rem", display:"flex", flexDirection:"column", alignItems:"center", background:canvasBg }}>
-           <TicketPreview blocks={blocks} cols={cols} />
+        <main className="ticketCanvasArea" style={{ 
+          flex:1, 
+          overflowY:"auto", 
+          background:canvasBg,
+          scrollbarWidth: "thin",
+          scrollbarColor: "var(--accent,#0f766e) transparent"
+        }}>
+          <div style={{ 
+            display: "flex", 
+            flexDirection: "column", 
+            alignItems: "center", 
+            padding: "8rem 1.5rem 30rem 1.5rem",
+            minHeight: "100%",
+            width: "100%",
+            boxSizing: "border-box"
+          }}>
+            <TicketPreview blocks={blocks} cols={cols} />
+          </div>
         </main>
 
         {/* 4. Properties */}
-        <aside className="ticketProperties" style={{ background:panelBg, borderLeft:div, overflow:"auto", padding:"0.8rem 1.2rem", boxShadow:"-2px 0 8px rgba(0,0,0,0.02)" }}>
+        <aside className="ticketProperties" style={{ background:panelBg, borderLeft:div, overflow:"auto", padding:"0.8rem 1.2rem 4rem 1.2rem", boxShadow:"-2px 0 8px rgba(0,0,0,0.02)" }}>
           <SH c="Propiedades" />
           {selected
             ? <PropsPanel block={selected} onChange={updateBlock} />
@@ -1349,6 +1406,7 @@ export default function TicketDesigner({ initialXml, onUpdate, apiBaseUrl }: Tic
                 Selecciona un bloque
               </div>
           }
+          <div style={{ height: "10rem" }} />
         </aside>
       </div>
 

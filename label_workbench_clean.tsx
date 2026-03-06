@@ -6,7 +6,6 @@ import VisualCanvasEditor from "@/components/VisualCanvasEditor";
 import TicketDesigner from "@/components/TicketDesigner";
 import LogicalPrintersManagerModal from "@/components/LogicalPrintersManagerModal";
 import { Portal } from "@/components/Portal";
-import pkg from "../../package.json";
 
 type Action = "parse" | "convert-to-glabels" | "convert-from-glabels";
 type DocKind = "sae" | "glabels" | "saetickets";
@@ -220,8 +219,6 @@ export default function LabelWorkbench() {
   const [pendingTemplateXml, setPendingTemplateXml] = useState<string | null>(null);
   const [templates, setTemplates] = useState<EditorTemplate[]>([]);
   const [saveStatus, setSaveStatus] = useState<"saved" | "saving" | "modified" | "error">("saved");
-  const [canUndo, setCanUndo] = useState(false);
-  const [canRedo, setCanRedo] = useState(false);
   const [darkMode, setDarkMode] = useState<boolean>(() => {
     if (typeof window === 'undefined') return false;
     return window.localStorage.getItem('theme') === 'dark';
@@ -238,16 +235,6 @@ export default function LabelWorkbench() {
       window.localStorage.setItem('theme', 'light');
     }
   }, [darkMode]);
-
-  // Listen for Undo/Redo availability from designers
-  useEffect(() => {
-    const handleHistoryChange = (e: any) => {
-      setCanUndo(e.detail.canUndo);
-      setCanRedo(e.detail.canRedo);
-    };
-    window.addEventListener("saelabel:history-change", handleHistoryChange);
-    return () => window.removeEventListener("saelabel:history-change", handleHistoryChange);
-  }, []);
 
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -316,20 +303,14 @@ export default function LabelWorkbench() {
     window.localStorage.setItem(STORAGE.sessions, JSON.stringify(sessions));
   }, [sessions]);
 
+  // Fetch templates once
   useEffect(() => {
-    if (showTemplatesGallery) {
-      refreshTemplates();
-    }
-  }, [showTemplatesGallery]);
+    refreshTemplates();
+  }, []);
 
   const refreshTemplates = async () => {
     try {
-      // Use cache buster
-      const url = `${apiBaseUrl.trim().replace(/\/+$/, "")}/api/templates?t=${Date.now()}`;
-      const response = await fetch(url);
-      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-      const list = await response.json() as EditorTemplate[];
-      console.log(`[Templates] Fetched ${list.length} templates`, list);
+      const list = await templatesApi.listTemplates();
       setTemplates(list);
     } catch (err) {
       console.error("Error fetching templates:", err);
@@ -1221,33 +1202,17 @@ export default function LabelWorkbench() {
           <details className="menuDropdown" open={activeMenu === 'editar'}>
             <summary className="menuItem" style={{ textAlign: 'left' }} onClick={(e) => { e.preventDefault(); toggleMenu('editar'); }}>Editar</summary>
             <div className="menuDropdownList">
-              <button 
-                type="button" 
-                className="menuDropdownItem" 
-                disabled={!canUndo}
-                style={{ opacity: canUndo ? 1 : 0.5, cursor: canUndo ? 'pointer' : 'default', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.65rem 1.25rem' }}
-                onClick={() => { 
-                  if (!canUndo) return;
-                  window.dispatchEvent(new CustomEvent('saelabel:history-undo'));
-                  closeAllMenus(); 
-                }}
-              >
-                <span>Deshacer</span>
-                <span style={{ opacity: 0.5, fontSize: '0.75rem', marginLeft: '2rem' }}>Ctrl + Z</span>
+              <button type="button" className="menuDropdownItem" onClick={() => { 
+                document.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true }));
+                closeAllMenus(); 
+              }}>
+                Deshacer <span style={{ float:'right', opacity:0.5 }}>Ctrl+Z</span>
               </button>
-              <button 
-                type="button" 
-                className="menuDropdownItem" 
-                disabled={!canRedo}
-                style={{ opacity: canRedo ? 1 : 0.5, cursor: canRedo ? 'pointer' : 'default', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.65rem 1.25rem' }}
-                onClick={() => { 
-                  if (!canRedo) return;
-                  window.dispatchEvent(new CustomEvent('saelabel:history-redo'));
-                  closeAllMenus(); 
-                }}
-              >
-                <span>Rehacer</span>
-                <span style={{ opacity: 0.5, fontSize: '0.75rem', marginLeft: '2rem' }}>Ctrl + Y</span>
+              <button type="button" className="menuDropdownItem" onClick={() => { 
+                document.dispatchEvent(new KeyboardEvent('keydown', { key: 'y', ctrlKey: true }));
+                closeAllMenus(); 
+              }}>
+                Rehacer <span style={{ float:'right', opacity:0.5 }}>Ctrl+Y</span>
               </button>
               <div className="menuDivider" />
               <button type="button" className="menuDropdownItem" onClick={() => { 
@@ -1465,7 +1430,7 @@ export default function LabelWorkbench() {
       {showTemplatesGallery && (
         <Portal>
         <div className="modalBackdrop">
-          <div className="modalCard" onClick={(e) => e.stopPropagation()} style={{ width: '650px', maxWidth: '95vw', maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}>
+          <div className="modalCard" onClick={(e) => e.stopPropagation()} style={{ width: '900px', maxWidth: '95vw', maxHeight: '90vh' }}>
             <div style={{ padding: '2rem', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg-tabs)' }}>
               <div>
                 <h2 style={{ margin: 0, fontSize: '1.75rem', fontWeight: 800, letterSpacing: '-0.02em' }}>Galería de Plantillas</h2>
@@ -1474,31 +1439,14 @@ export default function LabelWorkbench() {
               <button className="winBtn" onClick={() => setShowTemplatesGallery(false)} style={{ background: 'rgba(0,0,0,0.05)', borderRadius: '50%', width: '36px', height: '36px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
             </div>
 
-            <div style={{ padding: '2rem', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '2.5rem', flex: 1 }}>
+            <div style={{ padding: '2rem', overflowY: 'auto', display: 'grid', gridTemplateColumns: '1.2fr 1.8fr', gap: '2.5rem' }}>
               {/* Categoría: Tiquetes */}
               <section>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1.5rem' }}>
                   <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: 'rgba(22, 163, 74, 0.1)', color: '#16a34a', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect x="2" y="4" width="20" height="16" rx="2"/><line x1="6" y1="8" x2="6" y2="8"/><line x1="6" y1="12" x2="6" y2="12"/><line x1="6" y1="16" x2="6" y2="16"/></svg>
                   </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
                   <h3 style={{ margin: 0, fontSize: '0.85rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text)' }}>Tiquetes POS</h3>
-                  <button 
-                    onClick={refreshTemplates}
-                    style={{ 
-                      fontSize: '0.75rem', 
-                      background: 'none', 
-                      border: 'none', 
-                      color: 'var(--primary)', 
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '0.25rem'
-                    }}
-                  >
-                    <span style={{ fontSize: '1rem' }}>🔄</span> Refrescar
-                  </button>
-                </div>
                 </div>
                 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
@@ -1543,14 +1491,14 @@ export default function LabelWorkbench() {
                   <h3 style={{ margin: 0, fontSize: '0.85rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text)' }}>Etiquetas y Logística</h3>
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
                   {/* Dynamic Templates for Labels */}
                   {templates.filter(t => t.kind === 'sae' || t.kind === 'glabels').map(t => (
                     <button key={t.id} type="button" 
                       style={{ 
                         background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '10px', 
                         padding: '1.25rem', textAlign: 'left', cursor: 'pointer', transition: 'all 0.15s ease',
-                        display: 'flex', gap: '1rem', alignItems: 'center'
+                        display: 'flex', gap: '1rem', alignItems: 'center', gridColumn: '1 / -1'
                       }}
                       onMouseOver={(e) => { e.currentTarget.style.borderColor = '#3b82f6'; e.currentTarget.style.background = 'rgba(59, 130, 246, 0.02)'; e.currentTarget.style.transform = 'translateX(4px)'; }}
                       onMouseOut={(e) => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.background = 'var(--bg-card)'; e.currentTarget.style.transform = 'none'; }}
@@ -1568,7 +1516,7 @@ export default function LabelWorkbench() {
 
                   {/* Divider for presets if there are templates */}
                   {templates.filter(t => t.kind === 'sae' || t.kind === 'glabels').length > 0 && (
-                    <div style={{ gridColumn: '1 / -1', margin: '1rem 0', display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                    <div style={{ gridColumn: '1 / -1', margin: '0.5rem 0', display: 'flex', alignItems: 'center', gap: '1rem' }}>
                       <div style={{ height: '1px', flex: 1, background: 'var(--border)', opacity: 0.5 }}></div>
                       <span style={{ fontSize: '0.65rem', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Tamaños Estándar</span>
                       <div style={{ height: '1px', flex: 1, background: 'var(--border)', opacity: 0.5 }}></div>
@@ -2164,7 +2112,7 @@ export default function LabelWorkbench() {
         .zoomControlContainer, .sizeControlsContainer {
           display: flex;
           align-items: center;
-          gap: 0.5rem;
+          gap: 0.75rem;
         }
         .controlIcon {
           display: flex;
@@ -2438,10 +2386,8 @@ export default function LabelWorkbench() {
           color: var(--muted);
         }
         .sizeLabel {
-          display: flex;
-          align-items: center;
           gap: 0.35rem;
-          margin-bottom: 0;
+          min-width: 112px;
         }
         .sizeAxis {
           font-size: 0.72rem;
@@ -2449,7 +2395,6 @@ export default function LabelWorkbench() {
           color: var(--muted);
           min-width: 12px;
           text-align: center;
-          line-height: 1;
         }
         .unitInput {
           position: relative;
@@ -2457,11 +2402,9 @@ export default function LabelWorkbench() {
           align-items: center;
         }
         .unitInput input {
-          width: 5rem;
+          width: 6.2rem;
           margin-top: 0;
           padding-right: 2.05rem;
-          height: 2rem;
-          line-height: 2rem;
         }
         .unitInput small {
           position: absolute;
@@ -2471,22 +2414,6 @@ export default function LabelWorkbench() {
           color: var(--muted);
           pointer-events: none;
           text-transform: lowercase;
-          line-height: 1;
-        }
-        .unitSelect {
-          height: 2rem;
-          padding: 0 0.5rem;
-          font-size: 0.8rem;
-          font-weight: 600;
-          border: 1px solid var(--border);
-          border-radius: 6px;
-          background: #f8fafc;
-          color: var(--text);
-          cursor: pointer;
-          outline: none;
-          transition: all 0.2s;
-          display: flex;
-          align-items: center;
         }
         .studioWrapper {
           display: flex;
@@ -2855,10 +2782,9 @@ export default function LabelWorkbench() {
         
         .rulerLabel {
           position: absolute;
-          font-size: 11px;
-          color: #334155;
-          font-weight: 700;
-          letter-spacing: -0.5px;
+          font-size: 9px;
+          color: #64748b;
+          font-weight: 600;
         }
         .ruler.horizontal .rulerLabel { top: 2px; transform: translateX(-50%); }
         .ruler.vertical .rulerLabel { left: 2px; transform: translateY(-50%); }
@@ -3673,16 +3599,16 @@ export default function LabelWorkbench() {
         /* Premium Rulers & Guidelines */
         .ruler {
           background: #f1f5f9;
-          color: #334155;
-          font-size: 11px;
+          color: #64748b;
+          font-size: 9px;
           border-color: #cbd5e1;
           user-select: none;
         }
         .ruler.horizontal { border-bottom: 1px solid #cbd5e1; }
         .ruler.vertical { border-right: 1px solid #cbd5e1; }
         .rulerTick { stroke: #94a3b8; }
-        .rulerTick.major { stroke: #475569; }
-        .rulerLabel { color: #334155; font-weight: 700; }
+        .rulerTick.major { stroke: #64748b; }
+        .rulerLabel { fill: #64748b; }
         
         .guideline {
           position: absolute;
@@ -3784,14 +3710,14 @@ export default function LabelWorkbench() {
            ═══════════════════════════════════════════════ */
         [data-theme="dark"] .ruler {
           background: #0d1525 !important;
-          color: #94a3b8 !important;
+          color: #475569 !important;
           border-color: #2d3f55 !important;
         }
         [data-theme="dark"] .ruler.horizontal { border-bottom-color: #2d3f55 !important; }
         [data-theme="dark"] .ruler.vertical { border-right-color: #2d3f55 !important; }
         [data-theme="dark"] .rulerTick { stroke: #334155 !important; }
         [data-theme="dark"] .rulerTick.major { stroke: #475569 !important; }
-        [data-theme="dark"] .rulerLabel { color: #94a3b8 !important; fill: #94a3b8 !important; }
+        [data-theme="dark"] .rulerLabel { fill: #475569 !important; }
 
         /* Canvas / viewport */
         [data-theme="dark"] .previewViewport { background: #1a2035 !important; }
@@ -3926,7 +3852,7 @@ export default function LabelWorkbench() {
                 🏷️
               </div>
               <p style={{ margin: 0 }}>SAE Studio</p>
-              <p style={{ margin: '0.2rem 0', opacity: 0.6, fontSize: '0.85rem' }}>Versión {pkg.version}</p>
+              <p style={{ margin: '0.2rem 0', opacity: 0.6, fontSize: '0.85rem' }}>Versión 0.3.0</p>
             </div>
             
             <div style={{ background: 'var(--bg-tabs)', padding: '1.25rem', borderRadius: '12px', marginBottom: '1.5rem', border: '1px solid var(--border)' }}>
@@ -3934,11 +3860,11 @@ export default function LabelWorkbench() {
                 Suite profesional de diseño de etiquetas y tiquetes para motores de impresión SAE.
               </p>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem', alignItems: 'center' }}>
-                <a href={pkg.homepage} target="_blank" style={{ color: 'var(--accent)', fontWeight: 600, textDecoration: 'none', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                <a href="https://studio.saesystem.solutions/" target="_blank" style={{ color: 'var(--accent)', fontWeight: 600, textDecoration: 'none', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
                   Visitar sitio web
                 </a>
-                <a href={typeof pkg.repository === 'string' ? pkg.repository : pkg.repository?.url} target="_blank" style={{ color: 'var(--text)', opacity: 0.7, fontWeight: 500, textDecoration: 'none', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                <a href="https://github.com/EskenderDev/SAE.STUDIO.APP" target="_blank" style={{ color: 'var(--text)', opacity: 0.7, fontWeight: 500, textDecoration: 'none', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/></svg>
                   Repositorio GitHub
                 </a>

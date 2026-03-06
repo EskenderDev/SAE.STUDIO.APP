@@ -219,13 +219,17 @@
 
       /* Dropdowns / menus */
       [data-theme="dark"] .menuDropdownList,
-      [data-theme="dark"] .menuSubDropdownList,
       [data-theme="dark"] .fileMenuDropdown {
         background: #162032 !important; 
         border: 1px solid #2d3f55 !important;
         box-shadow: 0 10px 40px rgba(0,0,0,0.6) !important;
-        overflow: hidden !important;
+        overflow: visible !important;
         box-sizing: border-box !important;
+      }
+      [data-theme="dark"] .menuSubDropdownList {
+        background: #162032 !important; 
+        border: 1px solid #2d3f55 !important;
+        box-shadow: 0 10px 40px rgba(0,0,0,0.6) !important;
       }
       [data-theme="dark"] .menuDropdownItem { 
         color: #e2e8f0 !important; 
