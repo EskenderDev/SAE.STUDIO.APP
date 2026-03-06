@@ -543,9 +543,9 @@ export default function VisualCanvasEditor({
     setShowPrintModal(true);
     try {
       const logPrinters = await labelsApi.getLogicalPrinters();
-      setAvailableLogicalPrinters(logPrinters.filter(p => p.isActive));
+      setAvailableLogicalPrinters(logPrinters.filter(p => p.isActive && (p.mediaType === "label" || !p.mediaType)));
       if (printForm.printerName === "" && logPrinters.some(p => p.isActive)) {
-        setPrintForm(p => ({ ...p, printerName: logPrinters.filter(x => x.isActive)[0].name }));
+        setPrintForm(p => ({ ...p, printerName: logPrinters.filter(x => x.isActive && (x.mediaType === "label" || !x.mediaType))[0]?.name || "" }));
       }
     } catch (e) {
       console.error("Error loading logical printers:", e);
@@ -1276,6 +1276,10 @@ export default function VisualCanvasEditor({
               </span>
             </label>
             <select className="unitSelect" value={templateUnit} onChange={(e) => setTemplateUnit(e.target.value as Unit)}>
+              <option value="mm">mm</option>
+              <option value="cm">cm</option>
+              <option value="in">in</option>
+              <option value="pt">pt</option>
             </select>
           </div>
           <div className="toolbarDivider" />
@@ -2033,7 +2037,7 @@ export default function VisualCanvasEditor({
           // Recargar impresoras al cerrar
           try {
             const logPrinters = await labelsApi.getLogicalPrinters();
-            setAvailableLogicalPrinters(logPrinters.filter(p => p.isActive));
+            setAvailableLogicalPrinters(logPrinters.filter(p => p.isActive && (p.mediaType === "label" || !p.mediaType)));
           } catch(e){}
         }} />
       )}

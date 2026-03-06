@@ -2,6 +2,7 @@ export type PhysicalPrinterConfig = {
   name: string;
   copies?: number;
   paperWidth?: number;
+  paperHeight?: number;
 };
 
 import {
@@ -32,6 +33,7 @@ export type LogicalPrinterDto = {
   isActive: boolean;
   copies: number;
   paperWidth?: number | null;
+  paperHeight?: number | null;
   mediaType: string;
 };
 
@@ -44,6 +46,7 @@ export type UpsertLogicalPrinterRequest = {
   isActive: boolean;
   copies: number;
   paperWidth?: number | null;
+  paperHeight?: number | null;
   mediaType: string;
 };
 

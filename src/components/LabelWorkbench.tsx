@@ -564,6 +564,20 @@ export default function LabelWorkbench() {
         setSaveStatus("saved");
         setError("");
         setResult("");
+
+        // Auto-sync with backend to get an ID and ensure persistence
+        try {
+          const res = await editorApi.saveDocument({
+            name: cleanName,
+            kind: kind,
+            xml: sanitized
+          });
+          if (kind === 'saetickets') setTicketDocId(res.id);
+          else setLabelDocId(res.id);
+          void refreshDocuments();
+        } catch (e) {
+          console.error("Failed to sync opened local file to backend:", e);
+        }
       } catch (e: any) {
         if (e.name === "AbortError") return;
         console.error("File Picker failed:", e);
@@ -596,6 +610,20 @@ export default function LabelWorkbench() {
         setDocName(file.name.replace(/\.(saelabels|saetickets|xml)$/i, ""));
         
         setSaveStatus("saved");
+        
+        // Sync with SQL backend
+        try {
+          const res = await editorApi.saveDocument({
+            id: docId || undefined,
+            name: docName,
+            kind: docKind,
+            xml
+          });
+          if (!docId) setDocId(res.id);
+          void refreshDocuments();
+        } catch (e) {
+          console.error("Failed to sync Save As to backend:", e);
+        }
         return;
       } catch (e: any) {
         if (e.name === "AbortError") return;
@@ -1673,8 +1701,8 @@ export default function LabelWorkbench() {
                       background: newTicketDraft.width === 80 ? 'rgba(59, 130, 246, 0.05)' : 'transparent',
                       cursor: 'pointer', transition: 'all 0.2s'
                     }}>
-                    <div style={{ fontWeight: 700 }}>80mm</div>
-                    <div style={{ fontSize: '0.7rem', opacity: 0.6 }}>42 caracteres</div>
+                    <div style={{ fontWeight: 700, color: 'var(--text)' }}>80mm</div>
+                    <div style={{ fontSize: '0.7rem', opacity: 0.6, color: 'var(--text)' }}>42 caracteres</div>
                   </button>
                   <button type="button" 
                     onClick={() => setNewTicketDraft(p => ({ ...p, width: 58 }))}
@@ -1684,8 +1712,8 @@ export default function LabelWorkbench() {
                       background: newTicketDraft.width === 58 ? 'rgba(59, 130, 246, 0.05)' : 'transparent',
                       cursor: 'pointer', transition: 'all 0.2s'
                     }}>
-                    <div style={{ fontWeight: 700 }}>58mm</div>
-                    <div style={{ fontSize: '0.7rem', opacity: 0.6 }}>32 caracteres</div>
+                    <div style={{ fontWeight: 700, color: 'var(--text)' }}>58mm</div>
+                    <div style={{ fontSize: '0.7rem', opacity: 0.6, color: 'var(--text)' }}>32 caracteres</div>
                   </button>
                 </div>
               </div>

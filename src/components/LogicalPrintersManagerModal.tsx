@@ -117,7 +117,7 @@ function SizeSelectorModal({
   isPrinterSpecific
 }: { 
   onClose: () => void; 
-  onSelect: (val: number | undefined) => void; 
+  onSelect: (widthMm: number | undefined, heightMm: number | undefined) => void; 
   mediaType: "receipt" | "label";
   currentValue?: number;
   isPrinterSpecific?: boolean;
@@ -147,7 +147,7 @@ function SizeSelectorModal({
                 border: `2px solid ${currentValue === undefined ? 'var(--accent)' : 'var(--border)'}`,
                 borderRadius: '10px', cursor: 'pointer', textAlign: 'left', transition: 'all 0.15s'
               }}
-              onClick={() => { onSelect(undefined); onClose(); }}
+              onClick={() => { onSelect(undefined, undefined); onClose(); }}
             >
               <span style={{ fontWeight: 700, fontSize: '0.95rem', color: currentValue === undefined ? 'var(--accent)' : 'var(--text)' }}>
                 Usar valor general (Heredado)
@@ -173,7 +173,7 @@ function SizeSelectorModal({
                     border: `2px solid ${currentValue === opt.value ? 'var(--accent)' : 'var(--border)'}`,
                     borderRadius: '10px', cursor: 'pointer', textAlign: 'left', transition: 'all 0.15s'
                   }}
-                  onClick={() => { onSelect(opt.value); onClose(); }}
+                  onClick={() => { onSelect(opt.value, undefined); onClose(); }}
                 >
                   <span style={{ fontWeight: 700, fontSize: '0.95rem', color: currentValue === opt.value ? 'var(--accent)' : 'var(--text)' }}>{opt.label}</span>
                   <span style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>{opt.sub}</span>
@@ -233,7 +233,8 @@ export default function LogicalPrintersManagerModal({ onClose, apiBaseUrl }: Log
   const emptyForm = (): FormState => ({
     name: "", description: "", printers: [],
     isActive: true, copies: 1,
-    paperWidth: undefined,   // optional — undefined = let document control
+    paperWidth: undefined,
+    paperHeight: undefined,
     mediaType: "receipt",
     labelPresetId: "custom",
   });
@@ -296,18 +297,41 @@ export default function LogicalPrintersManagerModal({ onClose, apiBaseUrl }: Log
     try {
       // Build final payload: strip labelPresetId, resolve paperWidth
       const { labelPresetId, ...rest } = form;
-      let finalWidth = rest.paperWidth;
+      let finalWidth: number | undefined = form.paperWidth ?? undefined;
+      let finalHeight: number | undefined = form.paperHeight ?? undefined;
 
-      if (form.mediaType === 'label') {
-        const preset = LABEL_PRESETS.find(p => p.id === labelPresetId);
-        if (preset && preset.widthMm > 0) {
-          finalWidth = Math.round(preset.widthMm);
-        } else {
-          finalWidth = undefined; // custom => doc controls
+      // Sanitize physical printers to avoid sending invalid paperWidth/Height types
+      const sanitizedPrinters = rest.printers.map(p => {
+        let pw: number | null = null;
+        let ph: number | null = null;
+        
+        if (typeof p.paperWidth === 'number' && p.paperWidth > 0) pw = Math.round(p.paperWidth);
+        else if (typeof p.paperWidth === 'string') {
+          const parsed = parseFloat(p.paperWidth as string);
+          if (!isNaN(parsed) && parsed > 0) pw = Math.round(parsed);
         }
-      }
 
-      await api.upsertLogicalPrinter({ ...rest, paperWidth: finalWidth });
+        if (typeof p.paperHeight === 'number' && p.paperHeight > 0) ph = Math.round(p.paperHeight);
+        else if (typeof p.paperHeight === 'string') {
+          const parsed = parseFloat(p.paperHeight as string);
+          if (!isNaN(parsed) && parsed > 0) ph = Math.round(parsed);
+        }
+
+        return {
+          ...p,
+          paperWidth: pw,
+          paperHeight: ph,
+          copies: (typeof p.copies === 'number' && p.copies > 0) ? p.copies : null
+        } as any;
+      });
+
+      const safeFinalWidth = (finalWidth !== undefined && finalWidth !== null && (finalWidth as any) !== "" && Number(finalWidth) > 0) ? Number(finalWidth) : null;
+      const safeFinalHeight = (finalHeight !== undefined && finalHeight !== null && (finalHeight as any) !== "" && Number(finalHeight) > 0) ? Number(finalHeight) : null;
+      
+      const payload = { ...rest, paperWidth: safeFinalWidth, paperHeight: safeFinalHeight, printers: sanitizedPrinters };
+      console.log("GUARDA IMPRESORA PAYLOAD:", JSON.stringify(payload, null, 2));
+      
+      await api.upsertLogicalPrinter(payload);
       setEditingId(null);
       await fetchData();
     } catch (e: any) {
@@ -534,22 +558,23 @@ export default function LogicalPrintersManagerModal({ onClose, apiBaseUrl }: Log
                 {/* Row 4: Paper width — context-aware */}
                 <div>
                   <span style={FL}>{isLabel ? 'Tamaño de Etiqueta (General)' : 'Ancho de Papel (General)'}</span>
-                  <button
-                    type="button"
-                    onClick={() => setShowSizeSelector({ type: 'global' })}
-                    style={{
-                      ...INP, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                      background: 'var(--bg-card, #1e293b)', borderColor: 'var(--border)', height: '42px'
-                    }}
-                  >
-                    <span>
-                      {isLabel 
-                        ? (LABEL_PRESETS.find(p => p.widthMm === form.paperWidth)?.name || 'Personalizado')
-                        : (form.paperWidth ? `${form.paperWidth} mm` : 'Ancho Libre')
-                      }
-                    </span>
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><polyline points="6 9 12 15 18 9"/></svg>
-                  </button>
+  return (
+    <button
+      type="button"
+      onClick={() => setShowSizeSelector({ type: 'global' })}
+      style={{
+        ...INP, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        background: 'var(--bg-card, #1e293b)', borderColor: 'var(--border)', height: '42px'
+      }}
+    >
+      <span>
+        {isLabel 
+          ? (LABEL_PRESETS.find(p => p.widthMm === form.paperWidth && p.heightMm === form.paperHeight)?.name || 'Personalizado')
+          : (form.paperWidth ? `${form.paperWidth} mm` : 'Ancho Libre')
+        }
+      </span>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><polyline points="6 9 12 15 18 9"/></svg>
+    </button>
                   
                   <div style={{ marginTop: '0.5rem' }}>
                     {isLabel ? (
@@ -664,13 +689,13 @@ export default function LogicalPrintersManagerModal({ onClose, apiBaseUrl }: Log
             isPrinterSpecific={showSizeSelector.type === 'printer'}
             currentValue={showSizeSelector.type === 'global' ? (form.paperWidth ?? undefined) : (form.printers[showSizeSelector.index!].paperWidth ?? undefined)}
             onClose={() => setShowSizeSelector(null)}
-            onSelect={(val: number | undefined) => {
+            onSelect={(w: number | undefined, h: number | undefined) => {
               if (showSizeSelector.type === 'global') {
-                setForm(f => ({ ...f, paperWidth: val }));
+                setForm(f => ({ ...f, paperWidth: w, paperHeight: h }));
               } else {
                 const newList = [...form.printers];
                 const idx = showSizeSelector.index!;
-                newList[idx] = { ...newList[idx], paperWidth: val };
+                newList[idx] = { ...newList[idx], paperWidth: w, paperHeight: h };
                 setForm(f => ({ ...f, printers: newList }));
               }
             }}

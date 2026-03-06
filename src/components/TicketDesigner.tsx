@@ -10,8 +10,8 @@ type FontSize = "normal" | "medium" | "large" | "extra-large";
 
 interface Base { id: string; showIf?: string; }
 interface TextBlock   extends Base { type: "text";       text: string; align: Align; bold: boolean; extraBold?: boolean; size: FontSize; }
-interface SepBlock    extends Base { type: "separator";  char: string; }
-interface TotalBlock  extends Base { type: "total";      label: string; value: string; bold: boolean; extraBold?: boolean; }
+interface SepBlock    extends Base { type: "separator";  char: string; align?: Align; }
+interface TotalBlock  extends Base { type: "total";      label: string; value: string; bold: boolean; extraBold?: boolean; align?: Align; }
 interface QrBlock     extends Base { type: "qr";         content: string; align: Align; qrSize: number; }
 interface FeedBlock   extends Base { type: "feed";       lines: number; }
 interface ActionBlock extends Base { type: "cut" | "beep" | "open-drawer"; }
@@ -19,7 +19,7 @@ interface IfBlock     extends Base { type: "if";         expr: string; text: str
 interface IfelseBlock extends Base { type: "ifelse";     expr: string; thenText: string; elseText: string; align: Align; }
 
 export interface EachColumn { field: string; label: string; width: "auto" | number; align: Align; showIf?: string; bold?: boolean; extraBold?: boolean; size?: FontSize; }
-interface EachBlock   extends Base { type: "each";       listVar: string; columns: EachColumn[]; showHeader: boolean; childField?: string; childIndentCol?: number; }
+interface EachBlock   extends Base { type: "each";       listVar: string; columns: EachColumn[]; showHeader: boolean; childField?: string; childIndentCol?: number; align?: Align; }
 
 type Block = TextBlock | SepBlock | EachBlock | TotalBlock | QrBlock | FeedBlock | ActionBlock | IfBlock | IfelseBlock;
 
@@ -39,11 +39,9 @@ function xmlToBlocks(xml: string): { blocks: Block[]; width: number; printers: s
     const parser = new DOMParser();
     const doc = parser.parseFromString(xml || "", "application/xml");
     const root = doc.documentElement;
-    if (!root || root.tagName !== "saetickets") return { blocks: [], width: 80, printers: "" };
     const setup  = root.querySelector("setup");
-    const charW  = parseInt(setup?.getAttribute("width") ?? "42");
+    const width  = parseInt(setup?.getAttribute("width") ?? "42");
     const printers = setup?.getAttribute("printers") ?? "";
-    const width  = charW === 32 ? 58 : 80;
     const cmds   = root.querySelector("commands");
     const blocks: Block[] = [];
     if (!cmds) return { blocks, width, printers };
@@ -55,8 +53,8 @@ function xmlToBlocks(xml: string): { blocks: Block[]; width: number; printers: s
       const parseAl = (s: string) => (["left","center","right"].includes(s) ? s : "left") as Align;
 
       if      (t === "text")       blocks.push({ id:uid(), type:"text",      text:el.textContent??"", align:parseAl(si(el,"align")), bold:si(el,"bold")==="true", extraBold:si(el,"extraBold")==="true", size:(si(el,"size")||"normal") as FontSize, showIf:sif });
-      else if (t === "separator")  blocks.push({ id:uid(), type:"separator", char:si(el,"char")||"-", showIf:sif });
-      else if (t === "total")      blocks.push({ id:uid(), type:"total",     label:si(el,"label")||"TOTAL", value:si(el,"value")||"0", bold:si(el,"bold")==="true", extraBold:si(el,"extraBold")==="true", showIf:sif });
+      else if (t === "separator")  blocks.push({ id:uid(), type:"separator", char:si(el,"char")||"-", align:parseAl(si(el,"align")), showIf:sif });
+      else if (t === "total")      blocks.push({ id:uid(), type:"total",     label:si(el,"label")||"TOTAL", value:si(el,"value")||"0", bold:si(el,"bold")==="true", extraBold:si(el,"extraBold")==="true", align:parseAl(si(el,"align")), showIf:sif });
       else if (t === "qr")         blocks.push({ id:uid(), type:"qr",        content:el.textContent??"", align:(si(el,"align")||"center") as Align, qrSize:parseInt(si(el,"size")||"80"), showIf:sif });
       else if (t === "feed")       blocks.push({ id:uid(), type:"feed",      lines:parseInt(si(el,"lines")||"1"), showIf:sif });
       else if (t === "cut")        blocks.push({ id:uid(), type:"cut" });
@@ -84,26 +82,27 @@ function xmlToBlocks(xml: string): { blocks: Block[]; width: number; printers: s
           columns:cols, showHeader:si(el,"header")!=="false", 
           childField:si(el,"childField")||undefined,
           childIndentCol: parseInt(si(el,"childIndentCol")||"0"),
+          align: parseAl(si(el,"align")),
           showIf:sif 
         });
       }
     });
     return { blocks, width, printers };
-  } catch { return { blocks: [], width: 80, printers: "" }; }
+  } catch { return { blocks: [], width: 42, printers: "" }; }
 }
 
 function esc(s?: string) { return (s??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
 
 function blocksToXml(blocks: Block[], width: number, printers: string): string {
-  const chars = width === 58 ? 32 : 42;
+  const chars = width; // Already in columns (32 or 42)
   const pAttr = printers ? ` printers="${esc(printers)}"` : "";
   const lines: string[] = [];
   for (const b of blocks) {
     const si = b.showIf ? ` showIf="${esc(b.showIf)}"` : "";
     switch (b.type) {
       case "text":        lines.push(`    <text align="${b.align}" bold="${b.bold}" extraBold="${b.extraBold||false}" size="${b.size}"${si}>${esc(b.text)}</text>`); break;
-      case "separator":   lines.push(`    <separator char="${esc(b.char)}"${si}/>`); break;
-      case "total":       lines.push(`    <total label="${esc(b.label)}" value="${esc(b.value)}" bold="${b.bold}" extraBold="${b.extraBold||false}"${si}/>`); break;
+      case "separator":   lines.push(`    <separator char="${esc(b.char)}" align="${b.align||'left'}"${si}/>`); break;
+      case "total":       lines.push(`    <total label="${esc(b.label)}" value="${esc(b.value)}" bold="${b.bold}" extraBold="${b.extraBold||false}" align="${b.align||'left'}"${si}/>`); break;
       case "qr":          lines.push(`    <qr align="${b.align}" size="${b.qrSize}"${si}>${esc(b.content)}</qr>`); break;
       case "feed":        lines.push(`    <feed lines="${b.lines}"${si}/>`); break;
       case "cut":         lines.push(`    <cut/>`); break;
@@ -121,7 +120,7 @@ function blocksToXml(blocks: Block[], width: number, printers: string): string {
         }).join("\n");
         const child = b.childField ? ` childField="${esc(b.childField)}"` : "";
         const indent = b.childIndentCol ? ` childIndentCol="${b.childIndentCol}"` : "";
-        lines.push(`    <each listVar="${esc(b.listVar)}" header="${b.showHeader}"${child}${indent}${si}>\n${colXml}\n    </each>`);
+        lines.push(`    <each listVar="${esc(b.listVar)}" header="${b.showHeader}"${child}${indent} align="${b.align||'left'}"${si}>\n${colXml}\n    </each>`);
         break;
       }
     }
@@ -153,7 +152,7 @@ function QrImage({ content, size }: { content: string; size: number }) {
 
 // ─── Rich Preview ─────────────────────────────────────────────────────────────
 const MONO: React.CSSProperties = { fontFamily:"'Courier New',Courier,monospace", fontSize:"0.78rem", lineHeight:1.55 };
-const PREVIEW_ROW: React.CSSProperties = { ...MONO, display:"block", whiteSpace:"pre" };
+const PREVIEW_ROW: React.CSSProperties = { ...MONO, display:"block", whiteSpace:"pre-wrap", wordBreak: "break-all" };
 const INP_STYLE: React.CSSProperties  = { display:"block", width:"100%", marginTop:"0.2rem", padding:"0.6rem 0.75rem", border:"1px solid var(--border,#cbd5e1)", borderRadius:8, fontSize:"0.85rem", background:"var(--surface-alt, #f8fafc)", color: "var(--text)", boxSizing:"border-box", transition: "all 0.2s" };
 
 // ─── Special Variables ────────────────────────────────────────────────────────
@@ -302,12 +301,13 @@ function BlockPreviewItem({ block, cols }: { block: Block; cols: number }) {
       const txt = parseCommands(block.text);
       return <span style={{ ...PREVIEW_ROW, textAlign: block.align }}>{renderTextWithStyles(txt, block.bold, block.size, block.extraBold)}</span>;
     }
-    case "separator": return <span style={PREVIEW_ROW}>{block.char.repeat(cols)}</span>;
+    case "separator": return <span style={{ ...PREVIEW_ROW, textAlign: block.align }}>{block.char.repeat(cols)}</span>;
     case "total": {
       return (
-        <div style={{ ...PREVIEW_ROW, display: 'flex', justifyContent: 'space-between' }}>
-          <span>{renderTextWithStyles(block.label, block.bold, "normal", block.extraBold)}:</span>
-          <span>{renderTextWithStyles(block.value, block.bold, "normal", block.extraBold)}</span>
+        <div style={{ ...PREVIEW_ROW, display: 'flex', justifyContent: 'space-between', textAlign: block.align }}>
+          <div style={{ flex: 1, textAlign: block.align }}>
+             {renderTextWithStyles(block.label, block.bold, "normal", block.extraBold)}: {renderTextWithStyles(block.value, block.bold, "normal", block.extraBold)}
+          </div>
         </div>
       );
     }
@@ -357,7 +357,7 @@ function BlockPreviewItem({ block, cols }: { block: Block; cols: number }) {
       const indentX = block.childIndentCol ? (block.columns.slice(0, block.childIndentCol).reduce((s, c, i) => s + colWidths[i], 0) + block.childIndentCol) * 8 : 20;
 
       return (
-        <div style={{ display:"flex", flexDirection:"column", width: "100%" }}>
+        <div style={{ display:"flex", flexDirection:"column", width: "100%", textAlign: block.align }}>
           {headerRow}
           <div style={{ display: "flex" }}>
             {block.columns.map((c, i) => (
@@ -388,8 +388,8 @@ function BlockPreviewItem({ block, cols }: { block: Block; cols: number }) {
 function TicketPreview({ blocks, cols }: { blocks: Block[]; cols: number }) {
   return (
     <div className="ticketPreviewArea" style={{ fontFamily:"'Courier New',Courier,monospace", fontSize:"0.78rem", background:"#fff", color:"#111",
-      padding:"1rem 1.1rem", borderRadius:3, whiteSpace:"pre", lineHeight:1.55, minWidth:`${cols}ch`,
-      display:"inline-block", boxShadow:"0 2px 12px rgba(0,0,0,0.14),0 1px 3px rgba(0,0,0,0.07)" }}>
+      padding:"1rem 1.1rem", borderRadius:3, whiteSpace:"pre-wrap", lineHeight:1.55, width:`${cols}ch`, maxWidth:`${cols}ch`, boxSizing: "content-box",
+      display:"inline-block", boxShadow:"0 2px 12px rgba(0,0,0,0.14),0 1px 3px rgba(0,0,0,0.07)", overflow: "hidden", overflowWrap: "anywhere" }}>
       {blocks.length === 0
         ? <span style={{ color:"#aaa" }}>(tiquete vacío)</span>
         : blocks.map(b => <BlockPreviewItem key={b.id} block={b} cols={cols} />)
@@ -401,10 +401,10 @@ function TicketPreview({ blocks, cols }: { blocks: Block[]; cols: number }) {
 // ─── Palette ──────────────────────────────────────────────────────────────────
 const PALETTE: { label: string; icon: string; cat: string; factory: () => Block }[] = [
   { label:"Texto",      icon:"T",  cat:"contenido",  factory:()=>({ id:uid(), type:"text",      text:"Texto aquí",  align:"center",  bold:false, size:"normal" }) },
-  { label:"Separador",  icon:"—",  cat:"contenido",  factory:()=>({ id:uid(), type:"separator", char:"-" }) },
-  { label:"Total",      icon:"Σ",  cat:"contenido",  factory:()=>({ id:uid(), type:"total",     label:"TOTAL", value:"${TOTAL}", bold:true }) },
+  { label:"Separador",  icon:"—",  cat:"contenido",  factory:()=>({ id:uid(), type:"separator", char:"-", align:"left" }) },
+  { label:"Total",      icon:"Σ",  cat:"contenido",  factory:()=>({ id:uid(), type:"total",     label:"TOTAL", value:"${TOTAL}", bold:true, align:"left" }) },
   { label:"QR",         icon:"▣",  cat:"contenido",  factory:()=>({ id:uid(), type:"qr",        content:"${URL}", align:"center", qrSize:80 }) },
-  { label:"Lista (each)",icon:"⟳", cat:"control",    factory:()=>({ id:uid(), type:"each",      listVar:"ITEMS",  showHeader:true, columns:[
+  { label:"Lista (each)",icon:"⟳", cat:"control",    factory:()=>({ id:uid(), type:"each",      listVar:"ITEMS",  showHeader:true, align:"left", columns:[
     { field:"DESC",  label:"Descripción", width:"auto", align:"left" },
     { field:"QTY",   label:"Cant",        width:6,      align:"right" },
     { field:"TOTAL", label:"Total",       width:10,     align:"right" },
@@ -600,11 +600,18 @@ function PropsPanel({ block, onChange }: { block: Block; onChange: (b: Block) =>
           <ShowIfField/>
         </div>
       );
-    case "separator": return (<div>{f("Carácter", inp(block.char, v=>({...block,char:v}), "-"))}<ShowIfField/></div>);
+    case "separator": return (
+      <div style={{ display:"grid", gap:"0.4rem" }}>
+        {f("Carácter", inp(block.char, v=>({...block,char:v}), "-"))}
+        {f("Alineación", sel(block.align || "left", v=>({...block, align:v as Align}), ["left","center","right"]))}
+        <ShowIfField/>
+      </div>
+    );
       case "total": return (
         <div style={{ display:"grid", gap:"0.4rem" }}>
           {f("Etiqueta", inp(block.label, v=>({...block, label:v}), "TOTAL"))}
           {f("Valor",    inp(block.value, v=>({...block, value:v}), "${TOTAL}"))}
+          {f("Alineación", sel(block.align || "left", v=>({...block, align:v as Align}), ["left","center","right"]))}
           <div style={{ display: "flex", gap: "1rem" }}>
             {chk(block.bold, v=>({...block, bold:v, extraBold: v ? false : block.extraBold}), "Negrita")}
             {chk(block.extraBold||false, v=>({...block, extraBold:v, bold: v ? false : block.bold}), "Negrita Intensa")}
@@ -657,6 +664,7 @@ function PropsPanel({ block, onChange }: { block: Block; onChange: (b: Block) =>
              <input type="number" min={0} max={Math.max(0, block.columns.length-1)} style={I} value={block.childIndentCol || 0} onChange={e=>update({childIndentCol:parseInt(e.target.value)||0})}/>
              <span style={{ fontSize:"0.65rem", color:"#94a3b8" }}>La indentación será relativa a esta columna</span>
           </label>
+          {f("Alineación Bloque", sel(block.align || "left", v=>({...block, align:v as Align}), ["left","center","right"]))}
           {chk(block.showHeader, v => ({ ...block, showHeader: v } as EachBlock), "Mostrar encabezados")}
           <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginTop:"0.3rem" }}>
             <span style={{ fontSize:"0.72rem", fontWeight:700, color:"var(--muted,#64748b)", textTransform:"uppercase", letterSpacing:"0.06em" }}>Columnas</span>
@@ -775,7 +783,7 @@ function PaletteBtn({ item, onClick }: { item: typeof PALETTE[0]; onClick: ()=>v
 
 // ─── Main Designer ────────────────────────────────────────────────────────────
 export default function TicketDesigner({ initialXml, onUpdate, apiBaseUrl }: TicketDesignerProps) {
-  const init = useMemo(() => initialXml ? xmlToBlocks(initialXml) : { blocks: [], width: 80, printers: "" }, [initialXml]);
+  const init = useMemo(() => initialXml ? xmlToBlocks(initialXml) : { blocks: [], width: 42, printers: "" }, [initialXml]);
   
   // ─── States ────────────────────────────────────────────────────────────────
   const [blocks, setBlocks]         = useState<Block[]>(init.blocks);
@@ -800,7 +808,7 @@ export default function TicketDesigner({ initialXml, onUpdate, apiBaseUrl }: Tic
   const [printerSearch, setPrinterSearch] = useState("");
 
   // ─── Memos & Helpers ────────────────────────────────────────────────────────
-  const cols = width === 58 ? 32 : 42;
+  const cols = width; // Now width stores the column count directly (32 or 42)
   const selected = blocks.find(b => b.id === selectedId) ?? null;
   const detectedVars = useMemo(() => extractVars(blocks), [blocks]);
   const listVars = useMemo(() => {
@@ -873,7 +881,9 @@ export default function TicketDesigner({ initialXml, onUpdate, apiBaseUrl }: Tic
 
   // Load logical printers
   useEffect(() => {
-    labelsApi.getLogicalPrinters().then(setAvailableLogicalPrinters).catch(console.error);
+    labelsApi.getLogicalPrinters()
+      .then(printers => setAvailableLogicalPrinters(printers.filter(p => p.mediaType === "receipt" || !p.mediaType)))
+      .catch(console.error);
   }, [apiBaseUrl]);
 
   // Global Shortcuts & Events
@@ -1262,11 +1272,11 @@ export default function TicketDesigner({ initialXml, onUpdate, apiBaseUrl }: Tic
 
         <div style={{ width:1, height:20, background:"var(--border,#e2e8f0)", margin:"0 0.5rem" }} />
         <label style={{ fontSize:"0.8rem", display:"flex", alignItems:"center", gap:"0.5rem", fontWeight:500 }}>
-          Ancho:
-          <select value={width} onChange={e=>setWidth(parseInt(e.target.value))}
+          Tamaño:
+          <select value={width === 32 ? 58 : 80} onChange={e=>setWidth(e.target.value === "58" ? 32 : 42)}
             style={{ padding:"0.3rem 0.6rem", fontSize:"0.78rem", border:"1px solid var(--border,#cbd5e1)", borderRadius:6, background:"var(--surface-alt, #fff)", color:"var(--text)", cursor:"pointer", fontWeight:600 }}>
-            <option value={80}>80 mm (42 ch)</option>
-            <option value={58}>58 mm (32 ch)</option>
+            <option value={80}>80 mm (42 col)</option>
+            <option value={58}>58 mm (32 col)</option>
           </select>
         </label>
         <div style={{ width:1, height:20, background:"var(--border,#e2e8f0)", margin:"0 0.5rem" }} />
