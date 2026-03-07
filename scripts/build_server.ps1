@@ -4,7 +4,7 @@ $ErrorActionPreference = "Stop"
 
 $RepoRoot = (Get-Item .).FullName
 $PotentialPaths = @(
-    "..\SAE_STUDIO\src\SAE.STUDIO.Api",
+    "..\..\SAE_STUDIO\src\SAE.STUDIO.Api",
     "..\SAE.STUDIO\src\SAE.STUDIO.Api",
     "SAE_STUDIO\src\SAE.STUDIO.Api",
     "SAE.STUDIO\src\SAE.STUDIO.Api"

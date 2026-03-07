@@ -42,17 +42,6 @@ jobs:
         working-directory: ./SAELABEL.App
         run: npm install
 
-      - name: Build Server Sidecar
-        working-directory: ./SAELABEL.App
-        run: |
-          try {
-            pwsh .\scripts\build_server.ps1
-          } catch {
-            Write-Error "Build server failed. Diagnostic info:"
-            Get-ChildItem -Recurse -Depth 2
-            throw $_
-          }
-
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -63,16 +52,27 @@ jobs:
         with:
           workspaces: './SAELABEL.App/src-tauri -> target'
 
-      - uses: tauri-apps/tauri-action@v0
+      - name: Build Full Package (Inno Setup)
+        working-directory: ./SAELABEL.App
+        run: |
+          # The orchestrator handles API build, Tauri build, and Inno Setup
+          pwsh ./scripts/build_full_package.ps1
+
+      - name: Get Version
+        id: get_version
+        working-directory: ./SAELABEL.App
+        run: |
+          $version = (Get-Content package.json | ConvertFrom-Json).version
+          echo "VERSION=$version" >> $env:GITHUB_OUTPUT
+
+      - name: Create Release and Upload Asset
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: |
+            SAELABEL.App/scripts/Output/SAE_Studio_Setup_v${{ steps.get_version.outputs.VERSION }}.exe
+          generate_release_notes: true
+          draft: false
+          prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        with:
-          projectPath: SAELABEL.App
-          tagName: app-v__VERSION__
-          releaseName: 'SAE.STUDIO.APP v__VERSION__'
-          releaseBody: 'See the assets to download this version and install.'
-          releaseDraft: true
-          prerelease: false
-          args: ${{ matrix.args }}
