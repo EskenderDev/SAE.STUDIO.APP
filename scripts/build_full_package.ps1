@@ -3,10 +3,10 @@
 #===========================================================
 $ErrorActionPreference = "Stop"
 
-$RootDir = Get-Item ".."
-$ScriptsDir = Get-Item "."
-$TauriDir = Join-Path $RootDir.FullName "src-tauri"
-$InnoDir = Join-Path $ScriptsDir.FullName "inno"
+$ScriptsDir = $PSScriptRoot
+$RootDir = Split-Path -Parent $ScriptsDir
+$TauriDir = Join-Path $RootDir "src-tauri"
+$InnoDir = Join-Path $ScriptsDir "inno"
 $ISCC = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
 
 Write-Host "==========================================" -ForegroundColor Cyan
